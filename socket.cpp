@@ -18,13 +18,18 @@
 
 #define ERR_PREFIX          errno ? strerror(errno) :
 #define ERR_INIT            ERR_PREFIX "Couldn't create socket/set non blocking"
+#define ERR_CLOSE           ERR_PREFIX "Couldn't close socket"
+#define ERR_SHUTDOWN        ERR_PREFIX "Couldn't shutdown socket"
+
+#define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
+#define ERR_SEND            ERR_PREFIX "Couldn't send data"
+
 #define ERR_NOT_CONNECTED   ERR_PREFIX "Not connected"
 #define ERR_NOT_IDLE        ERR_PREFIX "Not in idle state"
 #define ERR_NOT_LISTENING   ERR_PREFIX "Not listening"
+
 #define ERR_COULDNT_BIND    ERR_PREFIX "Couldn't bind port"
 #define ERR_COULDNT_ACCEPT  ERR_PREFIX "Couldn't accept connection"
-#define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
-#define ERR_SEND            ERR_PREFIX "Couldn't send data"
 
 #define TEST_IDLE() do{ \
 		if(state != IDLE){ \
@@ -62,10 +67,29 @@ Socket::Socket(const Socket& s):
 	memset(&addr, '\0', sizeof addr);
 }
 
-Socket::Socket(int sock, struct sockaddr_in *ad):
-	fd(sock), state(CONNECTED), addr(), lerr(NULL)
+Socket::Socket(int sock, struct sockaddr_in *ad, enum State ste):
+	fd(sock), state(ste), addr(), lerr(NULL)
 {
 	memcpy(&addr, ad, sizeof addr);
+}
+
+void Socket::reinit(int sock, struct sockaddr_in *ad, enum State ste)
+{
+	if(state == CONNECTED && shutdown(fd, SHUT_RDWR) == -1)
+		throw ERR_SHUTDOWN;
+
+	if(close(fd) == -1)
+		throw ERR_CLOSE;
+
+
+	fd = sock;
+	if(ad)
+		memcpy(&addr, ad, sizeof addr);
+	else
+		memset(&addr, '\0', sizeof addr);
+
+	state = ste;
+	lerr = NULL;
 }
 
 Socket& Socket::operator=(const Socket& s)
@@ -94,8 +118,9 @@ bool Socket::setblocking(bool block) const
 
 Socket::~Socket()
 {
-	if(state != IDLE)
-		cleanup();
+	cleanup();
+	shutdown(fd, SHUT_RDWR);
+	fd = -1;
 }
 
 const char *Socket::remoteaddr()
@@ -116,11 +141,11 @@ const char *Socket::remoteaddr()
 
 void Socket::cleanup()
 {
-	shutdown(fd, SHUT_RDWR);
-	fd = -1;
-	state = IDLE;
+	int newfd = socket(DOMAIN, TYPE, PROTOCOL);
+	if(newfd == -1 || !setblocking(false))
+		throw ERR_INIT;
 
-	lerr = NULL;
+	reinit(newfd, NULL, IDLE);
 }
 
 void Socket::disconnect()
@@ -326,5 +351,29 @@ Socket *Socket::accept()
 		return NULL;
 	}else{
 		return new Socket(newfd, &ad);
+	}
+}
+
+bool Socket::accept(Socket& s)
+{
+	int newfd;
+	struct sockaddr_in ad;
+	socklen_t siz = sizeof ad;
+
+	if(state != LISTENING)
+		throw ERR_NOT_LISTENING;
+
+	newfd = ::accept(fd, (struct sockaddr *) &ad, &siz);
+
+	if(newfd == -1){
+		if(errno != EAGAIN && errno != EWOULDBLOCK){
+			lerr = ERR_COULDNT_ACCEPT;
+			return NULL;
+		}
+		lerr = NULL;
+		return false;
+	}else{
+		s.reinit(newfd, &ad);
+		return true;
 	}
 }

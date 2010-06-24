@@ -26,6 +26,7 @@ class Socket
 		void disconnect();
 
 		Socket *accept();
+		bool    accept(Socket&);
 
 		bool senddata(const char *);
 		bool senddata(char);
@@ -42,7 +43,8 @@ class Socket
 		const char *lasterr() const;
 
 	private:
-		Socket(int, struct sockaddr_in *);
+		Socket(     int, struct sockaddr_in *, enum State = CONNECTED);
+		void reinit(int, struct sockaddr_in *, enum State = CONNECTED);
 
 		void cleanup();
 		bool setblocking(bool) const;

@@ -89,10 +89,9 @@ void listen(int port)
 	std::cerr << "listening...\n";
 
 	for(;;){
-		Socket *client = s.accept();
-
-		if(client){
-			std::cout << "got connection from " << client->remoteaddr() << std::endl;
+		Socket client;
+		if(s.accept(client)){
+			std::cout << "got connection from " << client.remoteaddr() << std::endl;
 
 			for(;;){
 				std::string in;
@@ -104,13 +103,12 @@ void listen(int port)
 					std::cin.clear();
 					break;
 				}
-				if(!client->senddata(in) || !client->senddata('\n')){
-					std::cerr << "Couldn't write to socket: " << client->lasterr() << std::endl;
+				if(!client.senddata(in) || !client.senddata('\n')){
+					std::cerr << "Couldn't write to socket: " << client.lasterr() << std::endl;
 					break;
 				}
 			}
-			client->disconnect();
-			delete client;
+			client.disconnect();
 		}else if(s.lasterr()){
 			std::cerr << s.lasterr() << std::endl;
 			break;
@@ -158,10 +156,15 @@ int main(int argc, const char **argv)
 	}
 
 
-	if(host)
-		listen(port);
-	else
-		connect(ip, port);
+	try{
+		if(host)
+			listen(port);
+		else
+			connect(ip, port);
+	}catch(const char *s){
+		std::cerr << "Caught exception! " << s << std::endl;
+		return 1;
+	}
 
 	return 0;
 }
