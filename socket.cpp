@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "socket.h"
 
@@ -15,6 +16,22 @@
 #define LISTEN_BACKLOG 10
 #define USE_IPv6 0
 
+#define ERR_PREFIX          errno ? strerror(errno) :
+#define ERR_INIT            ERR_PREFIX "Couldn't create socket/set non blocking"
+#define ERR_NOT_CONNECTED   ERR_PREFIX "Not connected"
+#define ERR_NOT_IDLE        ERR_PREFIX "Not in idle state"
+#define ERR_NOT_LISTENING   ERR_PREFIX "Not listening"
+#define ERR_COULDNT_BIND    ERR_PREFIX "Couldn't bind port"
+#define ERR_COULDNT_ACCEPT  ERR_PREFIX "Couldn't accept connection"
+#define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
+
+#define TEST_IDLE() do{ \
+		if(state != IDLE){ \
+			lerr = ERR_NOT_IDLE; \
+			return false; \
+		} \
+	}while(0)
+
 #define DEBUG 1
 
 #if DEBUG
@@ -22,18 +39,32 @@
 #endif
 
 Socket::Socket():
-	fd(socket(DOMAIN, TYPE, PROTOCOL)), state(IDLE), hostaddr(), lerr(NULL)
+	fd(socket(DOMAIN, TYPE, PROTOCOL)), state(IDLE), addr(), lerr(NULL)
 {
 	if(fd == -1 || !setblocking(false))
-		throw;
+		throw ERR_INIT;
 
-	memset(&hostaddr, '\0', sizeof hostaddr);
+#if defined(SO_NOSIGPIPE)
+	{
+		int val = 1;
+		// ignore sigpipe - FreeBSD
+		setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val));
+	}
+#endif
+
+	memset(&addr, '\0', sizeof addr);
 }
 
 Socket::Socket(const Socket& s):
-	fd(s.fd), state(s.state), hostaddr(), lerr(s.lerr)
+	fd(s.fd), state(s.state), addr(), lerr(s.lerr)
 {
-	memset(&hostaddr, '\0', sizeof hostaddr);
+	memset(&addr, '\0', sizeof addr);
+}
+
+Socket::Socket(int sock, struct sockaddr_in *ad):
+	fd(sock), state(CONNECTED), addr(), lerr(NULL)
+{
+	memcpy(&addr, ad, sizeof addr);
 }
 
 Socket& Socket::operator=(const Socket& s)
@@ -66,29 +97,83 @@ Socket::~Socket()
 		cleanup();
 }
 
+const char *Socket::remoteaddr()
+{
+	static char ip[16];
+	if(state != CONNECTED)
+		throw ERR_NOT_CONNECTED;
+
+	if(!inet_ntop(AF_INET, &addr, ip, 16)){
+		lerr = ERR_NTOP;
+		return NULL;
+	}
+	return ip;
+}
+
 // data i/o -----------------------------------------
 
-bool Socket::senddata(std::string& data) const
+void Socket::cleanup()
+{
+	shutdown(fd, SHUT_RDWR);
+	fd = -1;
+	state = IDLE;
+
+	lerr = NULL;
+}
+
+void Socket::disconnect()
+{
+	if(state != IDLE)
+		cleanup();
+	lerr = NULL;
+}
+
+inline bool Socket::senddata(void *p, size_t siz)
+{
+	bool win;
+
+	if(state != CONNECTED)
+		throw ERR_NOT_CONNECTED;
+
+	//win = sendto(fd, p, siz, 0, NULL, 0) != -1;
+	//                                addr, addrlen
+
+#if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
+	win = send(fd, p, siz, MSG_NOSIGNAL /* prevent SIGPIPE etc */);
+#elif defined(SO_NOSIGPIPE)
+	win = send(fd, p, siz, 0);
+#else
+	// not bsd nor linux
+	// TODO
+	// *bracing for Windows BS*
+#error crabs
+
+	// neither, nor windows:
+	// http://krokisplace.blogspot.com/2010/02/suppressing-sigpipe-in-library.html
+#endif
+
+	if(!win || errno == EPIPE){
+		lerr = errno ? strerror(errno) : "Couldn't send data";
+		state = IDLE;
+		win = false; // in case errno && win
+	}
+
+	return win;
+}
+
+bool Socket::senddata(std::string& data)
 {
 	return senddata(data.c_str());
 }
 
-bool Socket::senddata(char c) const
+bool Socket::senddata(char c)
 {
-	if(state != CONNECTED)
-		throw;
-
-	return sendto(fd, &c, sizeof(char), 0, NULL, 0) != -1;
-	//                                addr, addrlen
+	return senddata(&c, sizeof(char));
 }
 
-bool Socket::senddata(const char *data) const
+bool Socket::senddata(const char *data)
 {
-	if(state != CONNECTED)
-		throw;
-
-	return sendto(fd, data, strlen(data), 0, NULL, 0) != -1;
-	//                                addr, addrlen
+	return senddata((void *)data, strlen(data));
 }
 
 Socket& Socket::operator<<(char c)
@@ -125,7 +210,7 @@ bool Socket::recvdata(std::string& data) const
 bool Socket::recvdata(char *buf, int len) const
 {
 	if(state != CONNECTED)
-		throw;
+		throw ERR_NOT_CONNECTED;
 
 	return recvfrom(fd, buf, len, 0, NULL, 0) != -1;
 }
@@ -134,7 +219,7 @@ enum Socket::State Socket::getstate()
 {
 	if(state == CONNECTING){
 		// check if we're connected yet
-		if(::connect(fd, (sockaddr *) &hostaddr, sizeof hostaddr) == -1){
+		if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1){
 			if(errno != EINPROGRESS && errno != EALREADY){
 				if(errno)
 					lerr = strerror(errno);
@@ -161,23 +246,22 @@ const char *Socket::lasterr() const
 
 bool Socket::connect(const char *host, int port)
 {
-	if(state != IDLE)
-		return false;
+	TEST_IDLE();
 
-	hostaddr.sin_family = AF_INET;
-	hostaddr.sin_port   = htons(port);
+	addr.sin_family = AF_INET;
+	addr.sin_port   = htons(port);
 
 #if USE_IPv6
-	if(!inet_pton(AF_INET, host, &hostaddr.sin_addr))
+	if(!inet_pton(AF_INET, host, &addr.sin_addr))
 		return false;
 #else
-	if(!inet_aton(host, &hostaddr.sin_addr)){
+	if(!inet_aton(host, &addr.sin_addr)){
 		lerr = "couldn't lookup host";
 		return false;
 	}
 #endif
 
-	if(::connect(fd, (sockaddr *) &hostaddr, sizeof hostaddr) == -1)
+	if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1)
 		if(errno == EINPROGRESS){
 			state = CONNECTING;
 			return true;
@@ -191,34 +275,47 @@ bool Socket::connect(const std::string& h, int port)
 	return connect(h.c_str(), port);
 }
 
-void Socket::cleanup()
+bool Socket::listen(int port)
 {
-	shutdown(fd, SHUT_RDWR);
-	fd = -1;
-	state = IDLE;
+	TEST_IDLE();
 
-	lerr = NULL;
-}
+	addr.sin_family = AF_INET;
+	addr.sin_port   = htons(port);
 
-bool Socket::listen()
-{
-	if(state != IDLE)
+	if(bind(fd, (struct sockaddr *) &addr, sizeof addr) == -1){
+		lerr = ERR_COULDNT_BIND;
 		return false;
+	}
 
 	if(::listen(fd, LISTEN_BACKLOG) == -1){
-		if(errno == EWOULDBLOCK){
-			state = LISTENING;
-			lerr = NULL;
-			return true;
-		}
+		lerr = strerror(errno);
+		return false;
+	}else{
+		state = LISTENING;
+		lerr = NULL;
+		return true;
 	}
-	lerr = strerror(errno);
-	return false;
 }
 
-void Socket::disconnect()
+Socket *Socket::accept()
 {
-	if(state != IDLE)
-		cleanup();
-	lerr = NULL;
+	int newfd;
+	struct sockaddr_in ad;
+	socklen_t siz = sizeof ad;
+
+	if(state != LISTENING)
+		throw ERR_NOT_LISTENING;
+
+	newfd = ::accept(fd, (struct sockaddr *) &ad, &siz);
+
+	if(newfd == -1){
+		if(errno != EAGAIN && errno != EWOULDBLOCK){
+			lerr = ERR_COULDNT_ACCEPT;
+			return NULL;
+		}
+		lerr = NULL;
+		return NULL;
+	}else{
+		return new Socket(newfd, &ad);
+	}
 }
