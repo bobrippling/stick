@@ -24,6 +24,7 @@
 #define ERR_COULDNT_BIND    ERR_PREFIX "Couldn't bind port"
 #define ERR_COULDNT_ACCEPT  ERR_PREFIX "Couldn't accept connection"
 #define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
+#define ERR_SEND            ERR_PREFIX "Couldn't send data"
 
 #define TEST_IDLE() do{ \
 		if(state != IDLE){ \
@@ -99,6 +100,7 @@ Socket::~Socket()
 
 const char *Socket::remoteaddr()
 {
+	// FIXME
 	static char ip[16];
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
@@ -153,7 +155,7 @@ inline bool Socket::senddata(void *p, size_t siz)
 #endif
 
 	if(!win || errno == EPIPE){
-		lerr = errno ? strerror(errno) : "Couldn't send data";
+		lerr = ERR_SEND;
 		state = IDLE;
 		win = false; // in case errno && win
 	}
@@ -212,7 +214,14 @@ bool Socket::recvdata(char *buf, int len) const
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
 
+	// FIXME: use recv
+	// check for EWOULDBLOCK/once connected remove O_BLOCK and use select() or poll()
 	return recvfrom(fd, buf, len, 0, NULL, 0) != -1;
+	/*
+	 * read
+	 * recv
+	 * recvmsg <- udp
+	 */
 }
 
 enum Socket::State Socket::getstate()
