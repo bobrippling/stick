@@ -13,6 +13,7 @@
 static void usage(const char *);
 void connect(const char *, int);
 void listen(int);
+void connected(Socket&);
 
 
 static void usage(const char *n)
@@ -20,6 +21,27 @@ static void usage(const char *n)
 	std::cerr << "Usage: " << n << " [OPTIONS] host\n";
 	std::cerr << " -l: listen\n";
 	exit(1);
+}
+
+void connected(Socket& s)
+{
+	std::string in;
+
+	for(;;){
+		std::cout << "$ " << std::flush;
+		if(!std::getline(std::cin, in)){
+			// EOF
+			std::cout << '\n';
+			break;
+		}
+
+		if(!s.senddata(in) || !s.senddata('\n')){
+			std::cerr << "Couldn't write to socket: " << s.lasterr() << std::endl;
+			break;
+		}
+	}
+
+	s.disconnect();
 }
 
 void connect(const char *host, int port)
@@ -30,8 +52,6 @@ void connect(const char *host, int port)
 	if(!s.connect(host, port)){
 		std::cerr << "couldn't connect to " << host << ": " << s.lasterr() << std::endl;
 	}else{
-		std::string in;
-
 		std::cout << "connecting...\n";
 
 		for(;;){
@@ -58,22 +78,8 @@ void connect(const char *host, int port)
 			select(0, NULL, NULL, NULL, &waittime);
 		}
 
-		if(s.getstate() == Socket::CONNECTED){
-			// TODO: branch to mainloop()
-			for(;;){
-				std::cout << "$ " << std::flush;
-				if(!std::getline(std::cin, in)){
-					std::cout << '\n';
-					break;
-				}
-				if(!s.senddata(in) || !s.senddata('\n')){
-					std::cerr << "Couldn't write to socket: " << s.lasterr() << std::endl;
-					break;
-				}
-			}
-
-			s.disconnect();
-		}
+		if(s.getstate() == Socket::CONNECTED)
+			connected(s);
 	}
 }
 
@@ -93,22 +99,7 @@ void listen(int port)
 		if(s.accept(client)){
 			std::cout << "got connection from " << client.remoteaddr() << std::endl;
 
-			for(;;){
-				std::string in;
-
-				std::cout << "$ " << std::flush;
-
-				if(!std::getline(std::cin, in)){
-					std::cout << '\n';
-					std::cin.clear();
-					break;
-				}
-				if(!client.senddata(in) || !client.senddata('\n')){
-					std::cerr << "Couldn't write to socket: " << client.lasterr() << std::endl;
-					break;
-				}
-			}
-			client.disconnect();
+			connected(s);
 		}else if(s.lasterr()){
 			std::cerr << s.lasterr() << std::endl;
 			break;

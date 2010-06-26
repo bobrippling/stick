@@ -157,7 +157,7 @@ void Socket::disconnect()
 
 inline bool Socket::senddata(void *p, size_t siz)
 {
-	bool win;
+	int ret;
 
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
@@ -166,26 +166,29 @@ inline bool Socket::senddata(void *p, size_t siz)
 	//                                addr, addrlen
 
 #if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
-	win = send(fd, p, siz, MSG_NOSIGNAL /* prevent SIGPIPE etc */);
+	ret = send(fd, p, siz, MSG_NOSIGNAL /* prevent SIGPIPE etc */);
 #elif defined(SO_NOSIGPIPE)
-	win = send(fd, p, siz, 0);
+	ret = send(fd, p, siz, 0);
 #else
-	// not bsd nor linux
 	// TODO
-	// *bracing for Windows BS*
-#error crabs
-
-	// neither, nor windows:
+	// not bsd nor linux
+	// neither, nor:
 	// http://krokisplace.blogspot.com/2010/02/suppressing-sigpipe-in-library.html
+#error unknown OS
 #endif
 
-	if(!win || errno == EPIPE){
-		lerr = ERR_SEND;
-		state = IDLE;
-		win = false; // in case errno && win
+	if(ret == -1 || errno == EPIPE){
+		if(errno == ECONNRESET)
+			// disconnected
+			lerr = ERR_NOT_CONNECTED;
+		else
+			lerr = ERR_SEND;
+
+		cleanup();
+		return false;
 	}
 
-	return win;
+	return true;
 }
 
 bool Socket::senddata(std::string& data)
@@ -221,7 +224,7 @@ Socket& Socket::operator<<(std::string& s)
 	return *this;
 }
 
-bool Socket::recvdata(std::string& data) const
+bool Socket::recvdata(std::string& data)
 {
 #define BUFSIZ 512
 	char buf[BUFSIZ];
@@ -234,19 +237,33 @@ bool Socket::recvdata(std::string& data) const
 #undef BUFSIZ
 }
 
-bool Socket::recvdata(char *buf, int len) const
+bool Socket::recvdata(char *buf, int len)
 {
+	int ret;
+
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
 
-	// FIXME: use recv
-	// check for EWOULDBLOCK/once connected remove O_BLOCK and use select() or poll()
-	return recvfrom(fd, buf, len, 0, NULL, 0) != -1;
+#if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
+	ret = recv(fd, buf, len, MSG_NOSIGNAL /* prevent SIGPIPE etc */);
+#elif defined(SO_NOSIGPIPE)
+	ret = recv(fd, buf, len, 0);
+#else
+	// not bsd nor linux
+#error unknown OS
+#endif
 	/*
+	 * funcs:
 	 * read
 	 * recv
 	 * recvmsg <- udp
 	 */
+
+	if(ret == 0)
+		// disconnected
+		cleanup();
+
+	return ret > 0;
 }
 
 enum Socket::State Socket::getstate()

@@ -35,8 +35,8 @@ class Socket
 		Socket& operator<<(char);
 		Socket& operator<<(std::string&);
 
-		bool recvdata(std::string&) const;
-		bool recvdata(char *, int) const;
+		bool recvdata(std::string&);
+		bool recvdata(char *, int);
 
 		enum State getstate();
 		const char *remoteaddr();
