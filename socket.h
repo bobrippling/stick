@@ -28,12 +28,13 @@ class Socket
 		Socket *accept();
 		bool    accept(Socket&);
 
+		bool senddata(const void *, size_t);
 		bool senddata(const char *);
-		bool senddata(char);
-		bool senddata(std::string&);
+		bool senddata(const char);
+		bool senddata(const std::string&);
 		Socket& operator<<(const char *);
-		Socket& operator<<(char);
-		Socket& operator<<(std::string&);
+		Socket& operator<<(const char);
+		Socket& operator<<(const std::string&);
 
 		bool recvdata(std::string&);
 		bool recvdata(char *, int);
@@ -48,7 +49,7 @@ class Socket
 
 		void cleanup();
 		bool setblocking(bool) const;
-		inline bool senddata(void *, size_t);
+		bool senddata(void *, size_t);
 
 		int fd;
 		enum State state;

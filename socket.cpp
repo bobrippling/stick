@@ -155,7 +155,7 @@ void Socket::disconnect()
 	lerr = NULL;
 }
 
-inline bool Socket::senddata(void *p, size_t siz)
+bool Socket::senddata(const void *p, size_t siz)
 {
 	int ret;
 
@@ -191,19 +191,19 @@ inline bool Socket::senddata(void *p, size_t siz)
 	return true;
 }
 
-bool Socket::senddata(std::string& data)
+bool Socket::senddata(const std::string& data)
 {
 	return senddata(data.c_str());
 }
 
 bool Socket::senddata(char c)
 {
-	return senddata(&c, sizeof(char));
+	return senddata((const void *)&c, (size_t)sizeof(char));
 }
 
 bool Socket::senddata(const char *data)
 {
-	return senddata((void *)data, strlen(data));
+	return senddata((const void *)data, strlen(data));
 }
 
 Socket& Socket::operator<<(char c)
@@ -218,7 +218,7 @@ Socket& Socket::operator<<(const char *s)
 	return *this;
 }
 
-Socket& Socket::operator<<(std::string& s)
+Socket& Socket::operator<<(const std::string& s)
 {
 	senddata(s);
 	return *this;
@@ -226,15 +226,15 @@ Socket& Socket::operator<<(std::string& s)
 
 bool Socket::recvdata(std::string& data)
 {
-#define BUFSIZ 512
-	char buf[BUFSIZ];
+#define BUFSIZE 512
+	char buf[BUFSIZE];
 	bool win;
 
-	if((win = recvdata(buf, BUFSIZ)))
+	if((win = recvdata(buf, BUFSIZE)))
 		data = buf;
 
 	return win;
-#undef BUFSIZ
+#undef BUFSIZE
 }
 
 bool Socket::recvdata(char *buf, int len)
@@ -385,7 +385,7 @@ bool Socket::accept(Socket& s)
 	if(newfd == -1){
 		if(errno != EAGAIN && errno != EWOULDBLOCK){
 			lerr = ERR_COULDNT_ACCEPT;
-			return NULL;
+			return false;
 		}
 		lerr = NULL;
 		return false;
