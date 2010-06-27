@@ -9,11 +9,19 @@
 #include "socket.h"
 
 #define CONF_PORT 2848
+#define BUF_SIZE  256
 
 static void usage(const char *);
-void connect(const char *, int);
-void listen(int);
-void connected(Socket&);
+void loop();
+
+Socket& connreq();
+void disconn();
+void receive(void *, size_t);
+void error();
+
+Socket server(BUF_SIZE, &connreq, &disconn, &receive, &error);
+Socket client(BUF_SIZE, NULL, &disconn, &receive, &error);
+Socket *connsock;
 
 
 static void usage(const char *n)
@@ -21,96 +29,6 @@ static void usage(const char *n)
 	std::cerr << "Usage: " << n << " [OPTIONS] host\n";
 	std::cerr << " -l: listen\n";
 	exit(1);
-}
-
-void connected(Socket& s)
-{
-	std::string in;
-
-	for(;;){
-		std::cout << "$ " << std::flush;
-		if(!std::getline(std::cin, in)){
-			// EOF
-			std::cout << '\n';
-			break;
-		}
-
-		if(!s.senddata(in) || !s.senddata('\n')){
-			std::cerr << "Couldn't write to socket: " << s.lasterr() << std::endl;
-			break;
-		}
-	}
-
-	s.disconnect();
-}
-
-void connect(const char *host, int port)
-{
-#define USEC 500000
-	Socket s;
-
-	if(!s.connect(host, port)){
-		std::cerr << "couldn't connect to " << host << ": " << s.lasterr() << std::endl;
-	}else{
-		std::cout << "connecting...\n";
-
-		for(;;){
-			struct timeval waittime;
-			bool brk = false;
-
-			waittime.tv_sec  = 1; // set it each time - the syscall changes the value
-			waittime.tv_usec = USEC;
-
-			switch(s.getstate()){
-				case Socket::CONNECTED:
-					std::cout << "connected\n";
-					brk = true;
-					break;
-				case Socket::IDLE:
-					std::cout << s.lasterr() << std::endl;
-					brk = true;
-				default:
-					break;
-			}
-			if(brk)
-				break;
-
-			select(0, NULL, NULL, NULL, &waittime);
-		}
-
-		if(s.getstate() == Socket::CONNECTED)
-			connected(s);
-	}
-}
-
-void listen(int port)
-{
-	Socket s;
-
-	if(!s.listen(port)){
-		std::cerr << "couldn't listen: " << s.lasterr() << std::endl;
-		return;
-	}
-
-	std::cerr << "listening...\n";
-
-	for(;;){
-		Socket client;
-		if(s.accept(client)){
-			std::cout << "got connection from " << client.remoteaddr() << std::endl;
-
-			connected(s);
-		}else if(s.lasterr()){
-			std::cerr << s.lasterr() << std::endl;
-			break;
-		}else{
-			struct timeval waittime;
-			waittime.tv_sec = 1;
-			waittime.tv_usec = USEC;
-
-			select(0, NULL, NULL, NULL, &waittime);
-		}
-	}
 }
 
 int main(int argc, const char **argv)
@@ -148,14 +66,98 @@ int main(int argc, const char **argv)
 
 
 	try{
-		if(host)
-			listen(port);
-		else
-			connect(ip, port);
+		if(host){
+			server.listen(CONF_PORT);
+			connsock = NULL;
+		}else
+			(connsock = &client)->connect(ip, port);
+		loop();
 	}catch(const char *s){
 		std::cerr << "Caught exception! " << s << std::endl;
 		return 1;
 	}
 
 	return 0;
+}
+
+Socket& connreq()
+{
+	std::cout << "connreq()\n";
+	return *(connsock = &client);
+}
+
+void disconn()
+{
+	std::cout << "disconn()\n";
+}
+
+void receive(void *d, size_t l)
+{
+	std::cout << "receive(): " << (char *)d << "(" << l << ")" << std::endl;
+}
+
+void error()
+{
+	std::cout << "error(): " <<
+		(connsock ? connsock->lasterr() : server.lasterr())
+		<< std::endl;
+}
+
+#define WAIT() \
+	do{ \
+		struct timeval tv; \
+		tv.tv_sec  = 1; \
+		tv.tv_usec = 0; \
+		select(0, NULL, NULL, NULL, &tv); \
+	}while(0)
+
+void loop()
+{
+	do{
+		WAIT();
+
+
+		if(connsock){
+			std::cout << "(client) ";
+			if(connsock->getstate() == Socket::CONNECTED){
+				if(connsock->senddata("hi there", 9))
+					std::cout << "sent message\n";
+				else
+					std::cerr << "connsock->senddata(): " << connsock->lasterr()
+																	 << std::endl;
+				break;
+			}else
+				std::cerr << "not connected (" << connsock->getstatestr()
+					<< "), running events: (bool)" << connsock->runevents()
+					<< std::endl;
+		}else{
+			// server - still waiting
+			std::cout << "(server) ";
+			if(server.runevents()){
+				std::cerr << "server->runevents(): state: "
+										 << server.getstatestr() << std::endl;
+				if(connsock)
+					std::cerr << "  connsock: "
+									 << connsock->getstatestr() << std::endl;
+			}
+		}
+
+		std::cout << "waiting... " << (connsock ? connsock->getstatestr() :
+			server.getstatestr())
+			<< std::endl;
+	}while(1);
+
+
+	while(connsock->getstate() == Socket::CONNECTED){
+		std::cout << "connected (" << connsock->remoteaddr() <<
+			"), waiting - " << connsock->getstatestr() << std::endl;
+
+		if(connsock->runevents()){
+			std::cout << "runevents() success, fin.\n";
+			break;
+		}
+		WAIT();
+	}
+
+	connsock->disconnect();
 }
