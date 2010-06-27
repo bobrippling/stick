@@ -7,24 +7,25 @@ class Socket
 		void cleanup();
 		bool setblocking(bool) const;
 		bool senddata(void *, size_t);
-		bool recvdata(void *, size_t);
 
 		// events
-		bool accept();
-		bool checkconnected();
 		void newsocket(int);
+		bool accept();
+		bool checkconn();
+		bool connectedyet();
 
 		int fd;
 		struct sockaddr_in addr;
 
 		const char *lerr;
+		char *buffer;
+		int buffersize;
 
 		// func ptrs
 		Socket& (*connrequestf)();
-		void (*disconnectedf)();
-		void (*receivedf)();
-		void (*errorf)();
-
+		void    (*disconnectedf)();
+		void    (*receivedf)(void *, size_t);
+		void    (*errorf)();
 
 	public:
 		enum State
@@ -36,10 +37,10 @@ class Socket
 		};
 
 		virtual ~Socket();
-		Socket(
+		Socket(int buffersize,
 				Socket& (connreq)(),
 				void (*disconnected)(),
-				void (*received)(),
+				void (*received)(void *, size_t),
 				void (*error)()
 				);
 		Socket(const Socket&);
@@ -64,19 +65,20 @@ class Socket
 		Socket& operator<<(const std::string&);
 
 		enum State getstate() const;
+		const char *getstatestr() const;
 		const char *remoteaddr();
 		const char *lasterr() const;
 
 		// function pointer getters
 		void (*get_connrequestfunc());
 		void (*get_disconnectedfunc());
-		void (*get_receivedfunc());
+		void (*get_receivedfunc(void *, size_t));
 		void (*get_errorfunc());
 
 		// function pointer setters
 		void set_connrequestfunc( void (*f));
 		void set_disconnectedfunc(void (*f));
-		void set_receivedfunc(    void (*f));
+		void set_receivedfunc(    void (*f(void *, size_t)));
 		void set_errorfunc(       void (*f));
 
 	private:

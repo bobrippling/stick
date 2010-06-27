@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <poll.h>
 
 #include "socket.h"
 
@@ -22,7 +23,10 @@
 #define ERR_SHUTDOWN        ERR_PREFIX "Couldn't shutdown socket"
 
 #define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
+#define ERR_SELECT          ERR_PREFIX "Socket poll error"
+
 #define ERR_SEND            ERR_PREFIX "Couldn't send data"
+#define ERR_RECV            ERR_PREFIX "Socket receive error"
 
 #define ERR_NOT_CONNECTED   ERR_PREFIX "Not connected"
 #define ERR_NOT_IDLE        ERR_PREFIX "Not in idle state"
@@ -46,14 +50,19 @@
 #include <iostream>
 #endif
 
-Socket::Socket(
+/*
+ * http://www.cs.utah.edu/dept/old/texinfo/glibc-manual-0.02/library_15.html
+ */
+
+Socket::Socket(int bs,
 				Socket& (connreq)(),
 				void (*disconnected)(),
-				void (*received)(),
+				void (*received)(void *, size_t),
 				void (*error)()
 		):
 	fd(socket(DOMAIN, TYPE, PROTOCOL)), addr(),
-	lerr(NULL), connrequestf(connreq), disconnectedf(disconnected),
+	lerr(NULL), buffer(new char[bs]), buffersize(bs),
+	connrequestf(connreq), disconnectedf(disconnected),
 	receivedf(received), errorf(error), state(IDLE)
 {
 	if(fd == -1 || !setblocking(false))
@@ -71,10 +80,31 @@ Socket::Socket(
 }
 
 
+Socket::Socket(const Socket& s):
+	fd(), addr(), lerr(), buffer(NULL), buffersize(-1),
+	connrequestf(), disconnectedf(), receivedf(),
+	errorf(), state()
+{
+	*this = s;
+}
+
 Socket& Socket::operator=(const Socket& s)
 {
-	// FIXME
-	std::cerr << s.fd;
+	fd = s.fd;
+
+	memcpy(&addr, &s.addr, sizeof addr);
+
+	lerr = s.lerr;
+
+	buffer = new char[buffersize = s.buffersize];
+
+	connrequestf = s.connrequestf;
+	disconnectedf = s.disconnectedf;
+	receivedf = s.receivedf;
+	errorf = s.errorf;
+
+	state = s.state;
+
 	return *this;
 }
 
@@ -100,12 +130,15 @@ Socket::~Socket()
 	shutdown(fd, SHUT_RDWR);
 	close(fd);
 	fd = -1;
+	delete[] buffer;
 }
 
 const char *Socket::remoteaddr()
 {
-	// FIXME
 	static char ip[16];
+
+	// FIXME
+
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
 
@@ -130,6 +163,7 @@ void Socket::newsocket(int newfd)
 
 	if(state == CONNECTED)
 		shutdown(fd, SHUT_RDWR);
+
 	close(fd);
 	fd = newfd;
 }
@@ -173,6 +207,10 @@ bool Socket::senddata(const void *p, size_t siz)
 		cleanup();
 		return false;
 	}
+#if DEBUG
+	else
+		std::cerr << "sent \"" << (const char *)p << "\"\n";
+#endif
 
 	return true;
 }
@@ -210,36 +248,18 @@ Socket& Socket::operator<<(const std::string& s)
 	return *this;
 }
 
-bool Socket::recvdata(void *buf, size_t len)
-{
-	int ret;
-
-	if(state != CONNECTED)
-		throw ERR_NOT_CONNECTED;
-
-#if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
-	ret = recv(fd, buf, len, MSG_NOSIGNAL /* prevent SIGPIPE */);
-#elif defined(SO_NOSIGPIPE)
-	ret = recv(fd, buf, len, 0);
-#else
-	// not bsd nor linux
-#error unknown OS
-#endif
-	/*
-	 * funcs:
-	 * read
-	 * recv
-	 * recvmsg <- udp
-	 */
-
-	if(ret == 0)
-		// disconnected
-		cleanup();
-
-	return ret > 0;
-}
-
 // ------------------------------------------------
+
+const char *Socket::getstatestr() const
+{
+	switch(state){
+		case CONNECTED:  return "connected";
+		case LISTENING:  return "listening";
+		case CONNECTING: return "connecting";
+		case IDLE:       return "idle";
+	}
+	return NULL;
+}
 
 enum Socket::State Socket::getstate() const
 {
@@ -317,44 +337,70 @@ bool Socket::runevents()
 	 *   check connected
 	 * elsif idle
 	 *   break;
+	 *
+	 * returns true on state change
 	 */
 
 	switch(state){
+		case CONNECTED:
+			return checkconn();
+
 		case LISTENING:
 			return accept();
 
-		case CONNECTED:
-			// TODO;
-			break;
-
 		case CONNECTING:
-			return checkconnected();
+			return connectedyet();
 
 		case IDLE:
-			break;
+			return false;
 	}
 	return true;
 }
 
-bool Socket::checkconnected()
+bool Socket::connectedyet()
 {
+	struct pollfd fds;
 	// check if we're connected yet
-	if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1){
-		if(errno == EINPROGRESS && errno == EALREADY)
-			return true;
 
-		if(errno)
-			lerr = strerror(errno);
-		else
-			lerr = ERR_TIMED_OUT;
+	// FIXME FIXME FIXME
+	fds.fd = fd;
+	fds.events = POLLOUT;
 
-		state = IDLE;
+	switch(poll(&fds, 1, 1 /*1ms*/) <= 0){
+		case -1:
+			if(errno)
+				lerr = strerror(errno);
+			else
+				lerr = ERR_TIMED_OUT;
+#if DEBUG
+			std::cerr << "Socket::connectedyet(): connect() error: "
+				<< lerr << " (" << errno << ")\n";
+#endif
+			cleanup();
+			state = IDLE;
+			return false;
 
-		return false;
-	}else{
-		state = CONNECTED;
-		return true;
+		case 0:
+			// not connected
+			return false;
+
+		default:
+			if(errno){
+				std::cerr << "Socket::connectedyet(): errno: " << errno
+									<< ": " << strerror(errno) << std::endl;
+				return false;
+			}
+
+			if((fds.revents & POLLOUT) == POLLOUT){
+#if DEBUG
+				std::cerr << "Socket::connectedyet(): connected\n";
+#endif
+				state = CONNECTED;
+				return true;
+			}
 	}
+
+	return false;
 }
 
 bool Socket::accept()
@@ -362,6 +408,9 @@ bool Socket::accept()
 	int newfd;
 	struct sockaddr_in ad;
 	socklen_t siz = sizeof ad;
+
+	if(!connrequestf)
+		return false;
 
 	newfd = ::accept(fd, (struct sockaddr *) &ad, &siz);
 
@@ -371,12 +420,78 @@ bool Socket::accept()
 		else
 			lerr = NULL;
 
-	}else if(connrequestf){
-		Socket s(connrequestf());
+	}else /*if(connrequestf)*/ {
+		Socket& s(connrequestf());
 
 		s.newsocket(newfd);
+
+		s.state = CONNECTED;
 		memcpy(&s.addr, &ad, sizeof ad);
+
 		return true;
 	}
 	return false;
+}
+
+bool Socket::checkconn()
+{
+	struct timeval tv = { 0, 50000 };
+	fd_set fds;
+	int ret;
+
+	if(state != CONNECTED)
+		throw ERR_NOT_CONNECTED;
+
+	FD_SET(fd, &fds);
+
+	// use poll()?
+	switch(select(1, &fds, NULL, NULL, &tv)){
+		case -1:
+			lerr = ERR_SELECT;
+			return false;
+
+		case 0:
+			// timeout
+			return false;
+	}
+
+#if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
+	ret = recv(fd, buffer, buffersize, MSG_NOSIGNAL /* prevent SIGPIPE */);
+#elif defined(SO_NOSIGPIPE)
+	ret = recv(fd, buffer, buffersize, 0);
+#else
+	// not bsd nor linux
+#error unknown OS
+#endif
+	/*
+	 * funcs:
+	 * read
+	 * recv
+	 * recvmsg <- udp
+	 */
+
+	switch(recv(fd, buffer, buffersize, 0)){
+		case -1:
+			if(errno == EWOULDBLOCK || errno == EAGAIN)
+				return false;
+			cleanup();
+			state = IDLE;
+			lerr = ERR_RECV;
+			return true;
+
+		case 0:
+			// disco
+			cleanup();
+			state = IDLE;
+			lerr = NULL;
+			return true;
+	}
+
+#if DEBUG
+	std::cerr << "got data: \"" << buffer << "\"\n";
+#endif
+
+	// got data
+	receivedf(buffer, buffersize);
+	return true;
 }
