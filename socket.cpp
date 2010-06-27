@@ -26,6 +26,8 @@
 
 #define ERR_NOT_CONNECTED   ERR_PREFIX "Not connected"
 #define ERR_NOT_IDLE        ERR_PREFIX "Not in idle state"
+
+#define ERR_TIMED_OUT       ERR_PREFIX "Timed out"
 #define ERR_NOT_LISTENING   ERR_PREFIX "Not listening"
 
 #define ERR_COULDNT_BIND    ERR_PREFIX "Couldn't bind port"
@@ -44,8 +46,15 @@
 #include <iostream>
 #endif
 
-Socket::Socket():
-	fd(socket(DOMAIN, TYPE, PROTOCOL)), state(IDLE), addr(), lerr(NULL)
+Socket::Socket(
+				Socket& (connreq)(),
+				void (*disconnected)(),
+				void (*received)(),
+				void (*error)()
+		):
+	fd(socket(DOMAIN, TYPE, PROTOCOL)), addr(),
+	lerr(NULL), connrequestf(connreq), disconnectedf(disconnected),
+	receivedf(received), errorf(error), state(IDLE)
 {
 	if(fd == -1 || !setblocking(false))
 		throw ERR_INIT;
@@ -61,42 +70,11 @@ Socket::Socket():
 	memset(&addr, '\0', sizeof addr);
 }
 
-Socket::Socket(const Socket& s):
-	fd(s.fd), state(s.state), addr(), lerr(s.lerr)
-{
-	memset(&addr, '\0', sizeof addr);
-}
-
-Socket::Socket(int sock, struct sockaddr_in *ad, enum State ste):
-	fd(sock), state(ste), addr(), lerr(NULL)
-{
-	memcpy(&addr, ad, sizeof addr);
-}
-
-void Socket::reinit(int sock, struct sockaddr_in *ad, enum State ste)
-{
-	if(state == CONNECTED && shutdown(fd, SHUT_RDWR) == -1)
-		throw ERR_SHUTDOWN;
-
-	if(close(fd) == -1)
-		throw ERR_CLOSE;
-
-
-	fd = sock;
-	if(ad)
-		memcpy(&addr, ad, sizeof addr);
-	else
-		memset(&addr, '\0', sizeof addr);
-
-	state = ste;
-	lerr = NULL;
-}
 
 Socket& Socket::operator=(const Socket& s)
 {
-	fd = s.fd;
-	state = s.state;
-	lerr = s.lerr;
+	// FIXME
+	std::cerr << s.fd;
 	return *this;
 }
 
@@ -120,6 +98,7 @@ Socket::~Socket()
 {
 	cleanup();
 	shutdown(fd, SHUT_RDWR);
+	close(fd);
 	fd = -1;
 }
 
@@ -141,11 +120,18 @@ const char *Socket::remoteaddr()
 
 void Socket::cleanup()
 {
-	int newfd = socket(DOMAIN, TYPE, PROTOCOL);
+	newsocket(socket(DOMAIN, TYPE, PROTOCOL));
+}
+
+void Socket::newsocket(int newfd)
+{
 	if(newfd == -1 || !setblocking(false))
 		throw ERR_INIT;
 
-	reinit(newfd, NULL, IDLE);
+	if(state == CONNECTED)
+		shutdown(fd, SHUT_RDWR);
+	close(fd);
+	fd = newfd;
 }
 
 void Socket::disconnect()
@@ -196,9 +182,9 @@ bool Socket::senddata(const std::string& data)
 	return senddata(data.c_str());
 }
 
-bool Socket::senddata(char c)
+bool Socket::senddata(const char c)
 {
-	return senddata((const void *)&c, (size_t)sizeof(char));
+	return senddata(&c, (size_t)sizeof(char));
 }
 
 bool Socket::senddata(const char *data)
@@ -206,7 +192,7 @@ bool Socket::senddata(const char *data)
 	return senddata((const void *)data, strlen(data));
 }
 
-Socket& Socket::operator<<(char c)
+Socket& Socket::operator<<(const char c)
 {
 	senddata(c);
 	return *this;
@@ -224,20 +210,7 @@ Socket& Socket::operator<<(const std::string& s)
 	return *this;
 }
 
-bool Socket::recvdata(std::string& data)
-{
-#define BUFSIZE 512
-	char buf[BUFSIZE];
-	bool win;
-
-	if((win = recvdata(buf, BUFSIZE)))
-		data = buf;
-
-	return win;
-#undef BUFSIZE
-}
-
-bool Socket::recvdata(char *buf, int len)
+bool Socket::recvdata(void *buf, size_t len)
 {
 	int ret;
 
@@ -245,7 +218,7 @@ bool Socket::recvdata(char *buf, int len)
 		throw ERR_NOT_CONNECTED;
 
 #if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
-	ret = recv(fd, buf, len, MSG_NOSIGNAL /* prevent SIGPIPE etc */);
+	ret = recv(fd, buf, len, MSG_NOSIGNAL /* prevent SIGPIPE */);
 #elif defined(SO_NOSIGPIPE)
 	ret = recv(fd, buf, len, 0);
 #else
@@ -266,25 +239,10 @@ bool Socket::recvdata(char *buf, int len)
 	return ret > 0;
 }
 
-enum Socket::State Socket::getstate()
+// ------------------------------------------------
+
+enum Socket::State Socket::getstate() const
 {
-	if(state == CONNECTING){
-		// check if we're connected yet
-		if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1){
-			if(errno != EINPROGRESS && errno != EALREADY){
-				if(errno)
-					lerr = strerror(errno);
-				else
-					lerr = "timed out";
-				state = IDLE;
-			}
-#if DEBUG
-			else
-				std::cerr << "socket::getstate(): errno: " << errno << std::endl;
-#endif
-		}else
-			state = CONNECTED;
-	}
 	return state;
 }
 
@@ -348,49 +306,77 @@ bool Socket::listen(int port)
 	}
 }
 
-Socket *Socket::accept()
+bool Socket::runevents()
 {
-	int newfd;
-	struct sockaddr_in ad;
-	socklen_t siz = sizeof ad;
+	/*
+	 * if connected:
+	 *   receive data/check disconnect
+	 * elsif listening:
+	 *   check for connections
+	 * elsif connecting:
+	 *   check connected
+	 * elsif idle
+	 *   break;
+	 */
 
-	if(state != LISTENING)
-		throw ERR_NOT_LISTENING;
+	switch(state){
+		case LISTENING:
+			return accept();
 
-	newfd = ::accept(fd, (struct sockaddr *) &ad, &siz);
+		case CONNECTED:
+			// TODO;
+			break;
 
-	if(newfd == -1){
-		if(errno != EAGAIN && errno != EWOULDBLOCK){
-			lerr = ERR_COULDNT_ACCEPT;
-			return NULL;
-		}
-		lerr = NULL;
-		return NULL;
+		case CONNECTING:
+			return checkconnected();
+
+		case IDLE:
+			break;
+	}
+	return true;
+}
+
+bool Socket::checkconnected()
+{
+	// check if we're connected yet
+	if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1){
+		if(errno == EINPROGRESS && errno == EALREADY)
+			return true;
+
+		if(errno)
+			lerr = strerror(errno);
+		else
+			lerr = ERR_TIMED_OUT;
+
+		state = IDLE;
+
+		return false;
 	}else{
-		return new Socket(newfd, &ad);
+		state = CONNECTED;
+		return true;
 	}
 }
 
-bool Socket::accept(Socket& s)
+bool Socket::accept()
 {
 	int newfd;
 	struct sockaddr_in ad;
 	socklen_t siz = sizeof ad;
 
-	if(state != LISTENING)
-		throw ERR_NOT_LISTENING;
-
 	newfd = ::accept(fd, (struct sockaddr *) &ad, &siz);
 
 	if(newfd == -1){
-		if(errno != EAGAIN && errno != EWOULDBLOCK){
+		if(errno != EAGAIN && errno != EWOULDBLOCK)
 			lerr = ERR_COULDNT_ACCEPT;
-			return false;
-		}
-		lerr = NULL;
-		return false;
-	}else{
-		s.reinit(newfd, &ad);
+		else
+			lerr = NULL;
+
+	}else if(connrequestf){
+		Socket s(connrequestf());
+
+		s.newsocket(newfd);
+		memcpy(&s.addr, &ad, sizeof ad);
 		return true;
 	}
+	return false;
 }
