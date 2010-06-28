@@ -93,7 +93,7 @@ void disconn()
 
 void receive(void *d, size_t l)
 {
-	std::cout << "receive(): " << (char *)d << "(" << l << ")" << std::endl;
+	std::cout << "receive(): " << (char *)d << " (" << l << ")" << std::endl;
 }
 
 void error()
@@ -116,46 +116,25 @@ void loop()
 	do{
 		WAIT();
 
-
 		if(connsock){
-			std::cout << "(client) ";
 			if(connsock->getstate() == Socket::CONNECTED){
-				if(connsock->senddata("hi there", 9))
-					std::cout << "sent message\n";
-				else
-					std::cerr << "connsock->senddata(): " << connsock->lasterr()
-																	 << std::endl;
+				if(!connsock->senddata("hi there", 9))
+					std::cerr << "connsock->senddata(): " << connsock->lasterr() << std::endl;
 				break;
 			}else
-				std::cerr << "not connected (" << connsock->getstatestr()
-					<< "), running events: (bool)" << connsock->runevents()
-					<< std::endl;
-		}else{
+				connsock->runevents();
+		}else
 			// server - still waiting
-			std::cout << "(server) ";
-			if(server.runevents()){
-				std::cerr << "server->runevents(): state: "
-										 << server.getstatestr() << std::endl;
-				if(connsock)
-					std::cerr << "  connsock: "
-									 << connsock->getstatestr() << std::endl;
-			}
-		}
+			server.runevents();
 
-		std::cout << "waiting... " << (connsock ? connsock->getstatestr() :
-			server.getstatestr())
-			<< std::endl;
 	}while(1);
 
 
-	while(connsock->getstate() == Socket::CONNECTED){
-		std::cout << "connected (" << connsock->remoteaddr() <<
-			"), waiting - " << connsock->getstatestr() << std::endl;
+	std::cout << "connected to " << connsock->remoteaddr() << std::endl;
 
-		if(connsock->runevents()){
-			std::cout << "runevents() success, fin.\n";
+	while(connsock->getstate() == Socket::CONNECTED){
+		if(connsock->runevents())
 			break;
-		}
 		WAIT();
 	}
 

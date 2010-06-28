@@ -7,6 +7,7 @@ class Socket
 		void cleanup();
 		bool setblocking(bool) const;
 		bool senddata(void *, size_t);
+		const char *addrtostr(struct sockaddr_in *);
 
 		// events
 		void newsocket(int);

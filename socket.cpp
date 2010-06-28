@@ -8,14 +8,16 @@
 #include <errno.h>
 #include <signal.h>
 #include <poll.h>
+#include <netdb.h>
 
 #include "socket.h"
+
+#define DEBUG 0
 
 #define DOMAIN AF_INET /* AF_INET6 */
 #define TYPE SOCK_STREAM
 #define PROTOCOL 0
 #define LISTEN_BACKLOG 10
-#define USE_IPv6 0
 
 #define ERR_PREFIX          errno ? strerror(errno) :
 #define ERR_INIT            ERR_PREFIX "Couldn't create socket/set non blocking"
@@ -23,7 +25,7 @@
 #define ERR_SHUTDOWN        ERR_PREFIX "Couldn't shutdown socket"
 
 #define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
-#define ERR_SELECT          ERR_PREFIX "Socket poll error"
+#define ERR_POLL            ERR_PREFIX "Socket poll error"
 
 #define ERR_SEND            ERR_PREFIX "Couldn't send data"
 #define ERR_RECV            ERR_PREFIX "Socket receive error"
@@ -43,8 +45,6 @@
 			return false; \
 		} \
 	}while(0)
-
-#define DEBUG 1
 
 #if DEBUG
 #include <iostream>
@@ -135,18 +135,18 @@ Socket::~Socket()
 
 const char *Socket::remoteaddr()
 {
-	static char ip[16];
-
-	// FIXME
-
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
 
-	if(!inet_ntop(AF_INET, &addr, ip, 16)){
-		lerr = ERR_NTOP;
-		return NULL;
-	}
-	return ip;
+	return addrtostr(&addr);
+}
+
+const char *Socket::addrtostr(struct sockaddr_in *ad)
+{
+#define BUFSIZ 32
+	static char buf[BUFSIZ];
+	return inet_ntop(AF_INET, &ad->sin_addr, buf, BUFSIZ);
+#undef BUFSIZ
 }
 
 // data i/o -----------------------------------------
@@ -207,10 +207,6 @@ bool Socket::senddata(const void *p, size_t siz)
 		cleanup();
 		return false;
 	}
-#if DEBUG
-	else
-		std::cerr << "sent \"" << (const char *)p << "\"\n";
-#endif
 
 	return true;
 }
@@ -275,20 +271,34 @@ const char *Socket::lasterr() const
 
 bool Socket::connect(const char *host, int port)
 {
+	struct addrinfo *res = NULL;
+
 	TEST_IDLE();
 
-	addr.sin_family = AF_INET;
-	addr.sin_port   = htons(port);
 
-#if USE_IPv6
-	if(!inet_pton(AF_INET, host, &addr.sin_addr))
+	if(getaddrinfo(host, NULL /* service - uninitialised in ret */, NULL, &res))
 		return false;
-#else
-	if(!inet_aton(host, &addr.sin_addr)){
-		lerr = "couldn't lookup host";
-		return false;
+
+	/*if(!inet_pton(AF_INET, host, &addr.sin_addr))
+		return false;*/
+
+#if DEBUG
+	{
+		struct addrinfo *p = res;
+		std::cerr << "lookup for " << host << ":" << port << " done\n";
+		while(p){
+			std::cerr << "  " << addrtostr((struct sockaddr_in *)p->ai_addr) <<
+				/*":" << ntohs(((struct sockaddr_in *)p->ai_addr)->sin_port) <<*/ std::endl;
+			p = p->ai_next;
+		}
+		std::cerr << "done\n";
 	}
 #endif
+
+	memcpy(&addr, res->ai_addr, sizeof addr);
+	addr.sin_port = htons(port);
+
+	freeaddrinfo(res);
 
 	if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1)
 		if(errno == EINPROGRESS){
@@ -362,12 +372,12 @@ bool Socket::connectedyet()
 	struct pollfd fds;
 	// check if we're connected yet
 
-	// FIXME FIXME FIXME
 	fds.fd = fd;
 	fds.events = POLLOUT;
 
-	switch(poll(&fds, 1, 1 /*1ms*/) <= 0){
+	switch(poll(&fds, 1 /* count */, 0 /*ms*/)){
 		case -1:
+			cleanup();
 			if(errno)
 				lerr = strerror(errno);
 			else
@@ -376,25 +386,14 @@ bool Socket::connectedyet()
 			std::cerr << "Socket::connectedyet(): connect() error: "
 				<< lerr << " (" << errno << ")\n";
 #endif
-			cleanup();
-			state = IDLE;
-			return false;
+			return true;
 
 		case 0:
 			// not connected
 			return false;
 
 		default:
-			if(errno){
-				std::cerr << "Socket::connectedyet(): errno: " << errno
-									<< ": " << strerror(errno) << std::endl;
-				return false;
-			}
-
 			if((fds.revents & POLLOUT) == POLLOUT){
-#if DEBUG
-				std::cerr << "Socket::connectedyet(): connected\n";
-#endif
 				state = CONNECTED;
 				return true;
 			}
@@ -435,24 +434,31 @@ bool Socket::accept()
 
 bool Socket::checkconn()
 {
-	struct timeval tv = { 0, 50000 };
-	fd_set fds;
+	struct pollfd fds;
 	int ret;
 
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
 
-	FD_SET(fd, &fds);
+	fds.fd = fd;
+	fds.events = POLLIN;
 
-	// use poll()?
-	switch(select(1, &fds, NULL, NULL, &tv)){
+	switch(poll(&fds, 1, 0)){
 		case -1:
-			lerr = ERR_SELECT;
-			return false;
+#if DEBUG
+			std::cerr << "Socket::checkconn(): post-poll(): poll error " << errno << std::endl;
+#endif
+			cleanup();
+			lerr = ERR_POLL;
+			return true;
 
 		case 0:
 			// timeout
 			return false;
+
+		default:
+			if((fds.revents & POLLIN) != POLLIN)
+				return false;
 	}
 
 #if defined(MSG_NOSIGNAL) && !defined(SO_NOSIGPIPE)
@@ -470,8 +476,11 @@ bool Socket::checkconn()
 	 * recvmsg <- udp
 	 */
 
-	switch(recv(fd, buffer, buffersize, 0)){
+	switch(ret){
 		case -1:
+#if DEBUG
+			std::cerr << "Socket::checkconn(): recv() returned -1: " << errno << std::endl;
+#endif
 			if(errno == EWOULDBLOCK || errno == EAGAIN)
 				return false;
 			cleanup();
@@ -486,10 +495,6 @@ bool Socket::checkconn()
 			lerr = NULL;
 			return true;
 	}
-
-#if DEBUG
-	std::cerr << "got data: \"" << buffer << "\"\n";
-#endif
 
 	// got data
 	receivedf(buffer, buffersize);
