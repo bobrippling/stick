@@ -60,8 +60,12 @@ UDPSocket::UDPSocket(const char *host, int port, int bs):
 	}
 #endif
 
-	if(!lookup(host, port, &addr))
-		throw ERR_COULDNT_LOOKUP;
+	if(host){
+		if(!lookup(host, port, &addr))
+			throw ERR_COULDNT_LOOKUP;
+	}else
+		memset(&addr, '\0', sizeof addr);
+	// TODO bind etc etc
 }
 
 bool UDPSocket::setblocking(bool block) const

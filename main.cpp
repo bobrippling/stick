@@ -6,28 +6,20 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#include "socket.h"
+#include "tcp_socket.h"
 
 #define CONF_PORT 2848
 #define BUF_SIZE  256
 
 static void usage(const char *);
-void loop();
 
-Socket& connreq();
-void disconn();
-void receive(void *, size_t);
-void error();
-
-Socket server(BUF_SIZE, &connreq, &disconn, &receive, &error);
-Socket client(BUF_SIZE, NULL, &disconn, &receive, &error);
-Socket *connsock;
-
+UDPSocket *server, *clients;
 
 static void usage(const char *n)
 {
-	std::cerr << "Usage: " << n << " [OPTIONS] host\n";
-	std::cerr << " -l: listen\n";
+	fprintf(stderr, "Usage: %s [OPTIONS] host\n", n);
+	fputs(" -l:     listen\n", stderr);
+	fputs(" -p num: port\n", stderr);
 	exit(1);
 }
 
@@ -45,7 +37,7 @@ int main(int argc, const char **argv)
 			if(++i < argc)
 				port = atoi(argv[i]);
 			else{
-				std::cerr << "need port\n";
+				fputs("need port\n", stderr);;
 				USAGE();
 			}
 		else if(!strcmp(argv[i], "--help"))
@@ -60,83 +52,18 @@ int main(int argc, const char **argv)
 		USAGE();
 
 	if(!host && !ip){
-		std::cerr << "need host\n";
+		fputs("need host\n", stderr);
 		USAGE();
 	}
 
 
 	try{
 		if(host){
-			server.listen(CONF_PORT);
-			connsock = NULL;
-		}else
-			(connsock = &client)->connect(ip, port);
-		loop();
+			server = new UDPSocket(NULL, port);
 	}catch(const char *s){
-		std::cerr << "Caught exception! " << s << std::endl;
+		fprintf(stderr, "Caught exception! %s\n", s);
 		return 1;
 	}
 
 	return 0;
-}
-
-Socket& connreq()
-{
-	std::cout << "connreq()\n";
-	return *(connsock = &client);
-}
-
-void disconn()
-{
-	std::cout << "disconn()\n";
-}
-
-void receive(void *d, size_t l)
-{
-	std::cout << "receive(): " << (char *)d << " (" << l << ")" << std::endl;
-}
-
-void error()
-{
-	std::cout << "error(): " <<
-		(connsock ? connsock->lasterr() : server.lasterr())
-		<< std::endl;
-}
-
-#define WAIT() \
-	do{ \
-		struct timeval tv; \
-		tv.tv_sec  = 1; \
-		tv.tv_usec = 0; \
-		select(0, NULL, NULL, NULL, &tv); \
-	}while(0)
-
-void loop()
-{
-	do{
-		WAIT();
-
-		if(connsock){
-			if(connsock->getstate() == Socket::CONNECTED){
-				if(!connsock->senddata("hi there", 9))
-					std::cerr << "connsock->senddata(): " << connsock->lasterr() << std::endl;
-				break;
-			}else
-				connsock->runevents();
-		}else
-			// server - still waiting
-			server.runevents();
-
-	}while(1);
-
-
-	std::cout << "connected to " << connsock->remoteaddr() << std::endl;
-
-	while(connsock->getstate() == Socket::CONNECTED){
-		if(connsock->runevents())
-			break;
-		WAIT();
-	}
-
-	connsock->disconnect();
 }
