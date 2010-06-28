@@ -10,13 +10,13 @@
 #include <poll.h>
 #include <netdb.h>
 
-#include "socket.h"
+#include "tcp_socket.h"
 
 #define DEBUG 0
 
 #define DOMAIN AF_INET /* AF_INET6 */
 #define TYPE SOCK_STREAM
-#define PROTOCOL 0
+#define PROTOCOL 0 /* aka use default */
 #define LISTEN_BACKLOG 10
 
 #define ERR_PREFIX          errno ? strerror(errno) :
@@ -25,10 +25,10 @@
 #define ERR_SHUTDOWN        ERR_PREFIX "Couldn't shutdown socket"
 
 #define ERR_NTOP            ERR_PREFIX "Couldn't convert IP socket address"
-#define ERR_POLL            ERR_PREFIX "Socket poll error"
+#define ERR_POLL            ERR_PREFIX "TCPSocket poll error"
 
 #define ERR_SEND            ERR_PREFIX "Couldn't send data"
-#define ERR_RECV            ERR_PREFIX "Socket receive error"
+#define ERR_RECV            ERR_PREFIX "TCPSocket receive error"
 
 #define ERR_NOT_CONNECTED   ERR_PREFIX "Not connected"
 #define ERR_NOT_IDLE        ERR_PREFIX "Not in idle state"
@@ -38,6 +38,9 @@
 
 #define ERR_COULDNT_BIND    ERR_PREFIX "Couldn't bind port"
 #define ERR_COULDNT_ACCEPT  ERR_PREFIX "Couldn't accept connection"
+#define ERR_COULDNT_CONNECT ERR_PREFIX "Couldn't connect"
+#define ERR_COULDNT_LOOKUP  ERR_PREFIX "Couldn't resolve host"
+
 
 #define TEST_IDLE() do{ \
 		if(state != IDLE){ \
@@ -54,11 +57,17 @@
  * http://www.cs.utah.edu/dept/old/texinfo/glibc-manual-0.02/library_15.html
  */
 
-Socket::Socket(int bs,
-				Socket& (connreq)(),
+extern "C"
+{
+#include "socket.h"
+}
+
+TCPSocket::TCPSocket(
+				TCPSocket& (connreq)(),
 				void (*disconnected)(),
 				void (*received)(void *, size_t),
-				void (*error)()
+				void (*error)(),
+				int bs
 		):
 	fd(socket(DOMAIN, TYPE, PROTOCOL)), addr(),
 	lerr(NULL), buffer(new char[bs]), buffersize(bs),
@@ -80,7 +89,7 @@ Socket::Socket(int bs,
 }
 
 
-Socket::Socket(const Socket& s):
+TCPSocket::TCPSocket(const TCPSocket& s):
 	fd(), addr(), lerr(), buffer(NULL), buffersize(-1),
 	connrequestf(), disconnectedf(), receivedf(),
 	errorf(), state()
@@ -88,7 +97,7 @@ Socket::Socket(const Socket& s):
 	*this = s;
 }
 
-Socket& Socket::operator=(const Socket& s)
+TCPSocket& TCPSocket::operator=(const TCPSocket& s)
 {
 	fd = s.fd;
 
@@ -108,7 +117,7 @@ Socket& Socket::operator=(const Socket& s)
 	return *this;
 }
 
-bool Socket::setblocking(bool block) const
+bool TCPSocket::setblocking(bool block) const
 {
 	int flags;
 
@@ -124,7 +133,7 @@ bool Socket::setblocking(bool block) const
 }
 
 
-Socket::~Socket()
+TCPSocket::~TCPSocket()
 {
 	cleanup();
 	shutdown(fd, SHUT_RDWR);
@@ -133,7 +142,7 @@ Socket::~Socket()
 	delete[] buffer;
 }
 
-const char *Socket::remoteaddr()
+const char *TCPSocket::remoteaddr()
 {
 	if(state != CONNECTED)
 		throw ERR_NOT_CONNECTED;
@@ -141,22 +150,14 @@ const char *Socket::remoteaddr()
 	return addrtostr(&addr);
 }
 
-const char *Socket::addrtostr(struct sockaddr_in *ad)
-{
-#define BUFSIZ 32
-	static char buf[BUFSIZ];
-	return inet_ntop(AF_INET, &ad->sin_addr, buf, BUFSIZ);
-#undef BUFSIZ
-}
-
 // data i/o -----------------------------------------
 
-void Socket::cleanup()
+void TCPSocket::cleanup()
 {
 	newsocket(socket(DOMAIN, TYPE, PROTOCOL));
 }
 
-void Socket::newsocket(int newfd)
+void TCPSocket::newsocket(int newfd)
 {
 	if(newfd == -1 || !setblocking(false))
 		throw ERR_INIT;
@@ -168,14 +169,14 @@ void Socket::newsocket(int newfd)
 	fd = newfd;
 }
 
-void Socket::disconnect()
+void TCPSocket::disconnect()
 {
 	if(state != IDLE)
 		cleanup();
 	lerr = NULL;
 }
 
-bool Socket::senddata(const void *p, size_t siz)
+bool TCPSocket::senddata(const void *p, size_t siz)
 {
 	int ret;
 
@@ -211,34 +212,34 @@ bool Socket::senddata(const void *p, size_t siz)
 	return true;
 }
 
-bool Socket::senddata(const std::string& data)
+bool TCPSocket::senddata(const std::string& data)
 {
 	return senddata(data.c_str());
 }
 
-bool Socket::senddata(const char c)
+bool TCPSocket::senddata(const char c)
 {
 	return senddata(&c, (size_t)sizeof(char));
 }
 
-bool Socket::senddata(const char *data)
+bool TCPSocket::senddata(const char *data)
 {
 	return senddata((const void *)data, strlen(data));
 }
 
-Socket& Socket::operator<<(const char c)
+TCPSocket& TCPSocket::operator<<(const char c)
 {
 	senddata(c);
 	return *this;
 }
 
-Socket& Socket::operator<<(const char *s)
+TCPSocket& TCPSocket::operator<<(const char *s)
 {
 	senddata(s);
 	return *this;
 }
 
-Socket& Socket::operator<<(const std::string& s)
+TCPSocket& TCPSocket::operator<<(const std::string& s)
 {
 	senddata(s);
 	return *this;
@@ -246,7 +247,7 @@ Socket& Socket::operator<<(const std::string& s)
 
 // ------------------------------------------------
 
-const char *Socket::getstatestr() const
+const char *TCPSocket::getstatestr() const
 {
 	switch(state){
 		case CONNECTED:  return "connected";
@@ -257,64 +258,42 @@ const char *Socket::getstatestr() const
 	return NULL;
 }
 
-enum Socket::State Socket::getstate() const
+enum TCPSocket::State TCPSocket::getstate() const
 {
 	return state;
 }
 
-const char *Socket::lasterr() const
+const char *TCPSocket::lasterr() const
 {
 	return lerr;
 }
 
 // socket instructions -----------------------------
 
-bool Socket::connect(const char *host, int port)
+bool TCPSocket::connect(const char *host, int port)
 {
-	struct addrinfo *res = NULL;
-
 	TEST_IDLE();
 
-
-	if(getaddrinfo(host, NULL /* service - uninitialised in ret */, NULL, &res))
+	if(!lookup(host, port, &addr)){
+		lerr = ERR_COULDNT_LOOKUP;
 		return false;
-
-	/*if(!inet_pton(AF_INET, host, &addr.sin_addr))
-		return false;*/
-
-#if DEBUG
-	{
-		struct addrinfo *p = res;
-		std::cerr << "lookup for " << host << ":" << port << " done\n";
-		while(p){
-			std::cerr << "  " << addrtostr((struct sockaddr_in *)p->ai_addr) <<
-				/*":" << ntohs(((struct sockaddr_in *)p->ai_addr)->sin_port) <<*/ std::endl;
-			p = p->ai_next;
-		}
-		std::cerr << "done\n";
 	}
-#endif
-
-	memcpy(&addr, res->ai_addr, sizeof addr);
-	addr.sin_port = htons(port);
-
-	freeaddrinfo(res);
 
 	if(::connect(fd, (sockaddr *) &addr, sizeof addr) == -1)
 		if(errno == EINPROGRESS){
 			state = CONNECTING;
 			return true;
 		}
-	lerr = strerror(errno);
+	lerr = ERR_COULDNT_CONNECT;
 	return false;
 }
 
-bool Socket::connect(const std::string& h, int port)
+bool TCPSocket::connect(const std::string& h, int port)
 {
 	return connect(h.c_str(), port);
 }
 
-bool Socket::listen(int port)
+bool TCPSocket::listen(int port)
 {
 	TEST_IDLE();
 
@@ -336,7 +315,7 @@ bool Socket::listen(int port)
 	}
 }
 
-bool Socket::runevents()
+bool TCPSocket::runevents()
 {
 	/*
 	 * if connected:
@@ -367,7 +346,7 @@ bool Socket::runevents()
 	return true;
 }
 
-bool Socket::connectedyet()
+bool TCPSocket::connectedyet()
 {
 	struct pollfd fds;
 	// check if we're connected yet
@@ -383,7 +362,7 @@ bool Socket::connectedyet()
 			else
 				lerr = ERR_TIMED_OUT;
 #if DEBUG
-			std::cerr << "Socket::connectedyet(): connect() error: "
+			std::cerr << "TCPSocket::connectedyet(): connect() error: "
 				<< lerr << " (" << errno << ")\n";
 #endif
 			return true;
@@ -402,7 +381,7 @@ bool Socket::connectedyet()
 	return false;
 }
 
-bool Socket::accept()
+bool TCPSocket::accept()
 {
 	int newfd;
 	struct sockaddr_in ad;
@@ -420,7 +399,7 @@ bool Socket::accept()
 			lerr = NULL;
 
 	}else /*if(connrequestf)*/ {
-		Socket& s(connrequestf());
+		TCPSocket& s(connrequestf());
 
 		s.newsocket(newfd);
 
@@ -432,7 +411,7 @@ bool Socket::accept()
 	return false;
 }
 
-bool Socket::checkconn()
+bool TCPSocket::checkconn()
 {
 	struct pollfd fds;
 	int ret;
@@ -446,7 +425,7 @@ bool Socket::checkconn()
 	switch(poll(&fds, 1, 0)){
 		case -1:
 #if DEBUG
-			std::cerr << "Socket::checkconn(): post-poll(): poll error " << errno << std::endl;
+			std::cerr << "TCPSocket::checkconn(): post-poll(): poll error " << errno << std::endl;
 #endif
 			cleanup();
 			lerr = ERR_POLL;
@@ -479,7 +458,7 @@ bool Socket::checkconn()
 	switch(ret){
 		case -1:
 #if DEBUG
-			std::cerr << "Socket::checkconn(): recv() returned -1: " << errno << std::endl;
+			std::cerr << "TCPSocket::checkconn(): recv() returned -1: " << errno << std::endl;
 #endif
 			if(errno == EWOULDBLOCK || errno == EAGAIN)
 				return false;
