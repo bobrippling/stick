@@ -1,19 +1,36 @@
-#include <iostream>
 #include <cstring>
 #include <cstdio>
 
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
+#include <SDL/SDL.h>
 
-#include "tcp_socket.h"
+#include "net/headers.h"
 
-#define CONF_PORT 2848
-#define BUF_SIZE  256
+#include "net/addr.h"
+#include "net/udp_socket.h"
+#include "gfx.h"
+#include "2d.h"
+#include "stick.h"
+#include "util.h"
+#include "files.h"
+#include "global.h"
 
-static void usage(const char *);
+#define CONF_PORT "2848"
+#define CONF_MAX_STICKS 128
 
-UDPSocket *server, *clients;
+using namespace Global;
+
+bool net()
+{
+	return true;
+}
+
+void cleanup()
+{
+	delete sock;
+	for(int i = 0; i < nsticks; i++)
+		delete sticks[i];
+	delete[] sticks;
+}
 
 static void usage(const char *n)
 {
@@ -27,21 +44,19 @@ int main(int argc, const char **argv)
 {
 #define USAGE() usage(*argv)
 	bool host = 0;
-	const char *ip = NULL;
-	int port = CONF_PORT;
+	const char *ip = NULL, *port = CONF_PORT;
+	int ret = 0;
 
 	for(int i = 1; i < argc; i++)
 		if(!strcmp(argv[i], "-l"))
 			host = 1;
 		else if(!strcmp(argv[i], "-p"))
 			if(++i < argc)
-				port = atoi(argv[i]);
+				port = argv[i];
 			else{
 				fputs("need port\n", stderr);;
 				USAGE();
 			}
-		else if(!strcmp(argv[i], "--help"))
-			USAGE();
 		else if(!host)
 			ip = argv[i];
 		else
@@ -56,14 +71,48 @@ int main(int argc, const char **argv)
 		USAGE();
 	}
 
-
-	try{
-		if(host){
-			server = new UDPSocket(NULL, port);
-	}catch(const char *s){
-		fprintf(stderr, "Caught exception! %s\n", s);
+	if(!Files::init())
 		return 1;
+
+	sticks = new Stick *[CONF_MAX_STICKS];
+	sock   = new UDPSocket();
+
+	for(int i = 0; i < CONF_MAX_STICKS; i++)
+		sticks[i] = NULL;
+
+	stick_me = sticks[0] = new Stick(NULL, "Tim");
+
+	if(!sock->init(ip, ip ? port : 0)){
+		perror("sock->init()");
+		goto bail;
+	}else if(host && !sock->bind(port)){
+		perror("sock->bind()");
+		goto bail;
 	}
 
-	return 0;
+	if(!GFX::init())
+		goto bail;
+
+	// main loop
+	for(;;){
+		if(!GFX::events())
+			break;
+
+		if(!net())
+			break;
+
+		if(redraw){
+			redraw = false;
+			GFX::draw(true, sticks, nsticks, NULL);
+		}
+
+		Util::mssleep(30);
+	}
+
+fin:
+	cleanup();
+	return ret;
+bail:
+	ret = 1;
+	goto fin;
 }

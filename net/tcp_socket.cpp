@@ -57,11 +57,6 @@
  * http://www.cs.utah.edu/dept/old/texinfo/glibc-manual-0.02/library_15.html
  */
 
-extern "C"
-{
-#include "socket.h"
-}
-
 TCPSocket::TCPSocket(
 				TCPSocket& (connreq)(),
 				void (*disconnected)(),
@@ -75,7 +70,7 @@ TCPSocket::TCPSocket(
 	receivedf(received), errorf(error), state(IDLE)
 {
 	if(fd == -1 || !setblocking(false))
-		throw ERR_INIT;
+		throw ERR_INIT; // FIXME FIXME FIXME no throw in constructor
 
 #if defined(SO_NOSIGPIPE)
 	{

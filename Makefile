@@ -1,24 +1,28 @@
-CXXFLAGS = -g -W -Wall -Wcast-align -Wcast-qual -Wshadow -Waggregate-return -Wpointer-arith -Wcast-align -Wwrite-strings -Winline -Wredundant-decls -Wextra -pedantic -ansi -Wabi -Wctor-dtor-privacy -Wnon-virtual-dtor -Wreorder -Weffc++ -Wno-non-template-friend -Woverloaded-virtual -Wsign-promo
-LDFLAGS  =
+CFLAGS   = -Wall -Wextra -pedantic -g -D_POSIX_SOURCE
+CXXFLAGS = ${CFLAGS}
+LDFLAGS  = -lSDL -lSDL_image
 
-stick: tcp_socket.o udp_socket.o socket.o main.o
-	@echo LD $@
-	@${CXX} ${LDFLAGS} -o $@ $^
+Stick: stick.o files.o gfx.o util.o main.o \
+		net/addr.o net/udp_socket.o global.o
+	${CXX} ${LDFLAGS} -o $@ $^
 
 %.o:%.cpp
-	@echo CPP $<
-	@${CXX} ${CXXFLAGS} -c -o $@ $<
+	${CXX} ${CXXFLAGS} -c -o $@ $<
 
 %.o:%.c
-	@echo CC $<
-	@${CC} ${CFLAGS} -c -o $@ $<
+	${CC} ${CFLAGS} -c -o $@ $<
 
 clean:
-	@rm -f *.o stick
+	rm -f `find -iname \*.o` Stick
 
 .PHONY: clean
 
-main.o: main.cpp socket.h
-tcp_socket.o: tcp_socket.cpp tcp_socket.h socket.h
-udp_socket.o: udp_socket.cpp udp_socket.h socket.h
-socket.o: socket.c socket.h
+stick.o: stick.cpp net/headers.h net/addr.h gfx.h stick.h
+files.o: files.cpp files.h util.h
+gfx.o: gfx.cpp gfx.h files.h
+main.o: main.cpp net/headers.h net/addr.h net/udp_socket.h gfx.h stick.h \
+ util.h
+util.o: util.cpp util.h
+addr.o: net/addr.cpp net/addr.h
+tcp_socket.o: net/tcp_socket.cpp net/tcp_socket.h
+udp_socket.o: net/udp_socket.cpp net/addr.h net/udp_socket.h
