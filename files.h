@@ -13,6 +13,7 @@ namespace Files
 
 	GETTER(bg)
 	GETTER(stick)
+	GETTER(bullet)
 
 #undef GETTER
 }

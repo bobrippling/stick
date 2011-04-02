@@ -49,8 +49,8 @@ namespace Files
 			} \
 		while(0)
 
-		LOAD(bg,    "img/bg.bmp");
-		LOAD(stick, "img/stick.bmp");
+		LOAD(bg,     "img/bg.bmp");
+		LOAD(stick,  "img/stick.bmp");
 
 		return true;
 #undef LOAD
