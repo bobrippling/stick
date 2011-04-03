@@ -8,14 +8,18 @@
 #include "gfx.h"
 #include "2d.h"
 #include "obj.h"
+#include "plat.h"
 #include "stick.h"
 #include "files.h"
 #include "util.h"
 
-Stick::Stick(const struct sockaddr_in *addr, const char *name)
-	: Addressable(addr), Obj(Files::img_stick()),
+Stick::Stick(const struct sockaddr_in *addr, const char *name, float x, float y, float speed, float heading)
+	: Addressable(addr),
+	Obj(Files::img_stick(), x, y, speed, heading),
 	_name(new char[1 + strlen(name)]),
-	_facing(0), _last_bullet(Util::mstime() - CONF_BULLET_DELAY)
+	_facing(0),
+	_last_bullet(Util::mstime() - CONF_BULLET_DELAY),
+	_cur_platform(-1)
 {
 	strcpy(_name, name);
 }
@@ -23,4 +27,15 @@ Stick::Stick(const struct sockaddr_in *addr, const char *name)
 Stick::~Stick()
 {
 	delete[] _name;
+}
+
+bool Stick::on_platform() const
+{
+	return _cur_platform != -1;
+}
+
+void Stick::move_to_platform(Platform &p)
+{
+	_y = p.get_y();
+	_speed = 0.0f;
 }

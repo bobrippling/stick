@@ -1,5 +1,6 @@
 #include <cstring>
 #include <cstdio>
+#include <ctime>
 
 #include <SDL/SDL.h>
 
@@ -12,8 +13,10 @@
 #include "gfx.h"
 #include "2d.h"
 #include "obj.h"
+#include "plat.h"
 #include "stick.h"
 #include "bullet.h"
+#include "plat.h"
 #include "util.h"
 #include "files.h"
 #include "global.h"
@@ -64,14 +67,27 @@ void handle_keys()
 
 void physics()
 {
+	static const Vector vec_gravity CONF_GRAVITY;
+
 	for(int i = 0; i < nsticks; i++){
-		sticks[i]->apply_vector(*sticks[i]);
+		sticks[i]->apply_vector();
 		sticks[i]->clip(0, 0, GFX::SCREEN_WIDTH, GFX::SCREEN_HEIGHT, Mover::CLIP_BOUNCE);
+
+		if(!sticks[i]->on_platform()){
+			sticks[i]->add_vector(vec_gravity);
+			for(int j = 0; j < CONF_NPLATFORMS; j++)
+				if(sticks[i]->touches(*platforms[j])){
+					printf("stick %d -> platform %d\n", i, j);
+					sticks[i]->set_cur_platform(j);
+					sticks[i]->move_to_platform(*platforms[j]);
+				}
+		}
 	}
 
 	for(int i = 0; i < nbullets; i++){
 		if(bullets[i]){
-			bullets[i]->apply_vector(*bullets[i]);
+			bullets[i]->apply_vector();
+
 			if(bullets[i]->clip(0, 0, GFX::SCREEN_WIDTH, GFX::SCREEN_HEIGHT, Mover::CLIP_NONE)){
 				delete bullets[i];
 				bullets[i] = NULL;
@@ -112,23 +128,32 @@ void var_init()
 	sticks = new Stick *[CONF_MAX_STICKS];
 	memset(sticks, 0, CONF_MAX_STICKS * sizeof(sticks[0]));
 
-	stick_me = sticks[0] = new Stick(NULL, "Tim");
+	stick_me = sticks[0] = new Stick(NULL, "Tim", 0.0f, 0.0f, 0.0f, 0.0f);
 	nsticks++;
 	stick_me->set_x(GFX::SCREEN_WIDTH  / 2);
 	stick_me->set_y(GFX::SCREEN_HEIGHT / 2);
 
 	bullets = new Bullet *[CONF_MAX_BULLETS];
 	memset(bullets, 0, CONF_MAX_BULLETS * sizeof(bullets[0]));
+
+	platforms = new Platform *[CONF_NPLATFORMS];
+
+	for(int i = 0; i < CONF_NPLATFORMS; i++)
+		platforms[i] = new Platform(
+			rand() % CONF_WIDTH,
+			rand() % CONF_HEIGHT,
+			rand() % (CONF_PLAT_MAX_W - CONF_PLAT_MIN_W) + CONF_PLAT_MIN_W,
+			CONF_PLAT_H);
 }
 
-			namespace GFX{
-			extern SDL_Surface *screen;}
 int main(int argc, const char **argv)
 {
 #define USAGE() usage(*argv)
 	bool host = 0;
 	const char *ip = NULL, *port = CONF_PORT;
 	int ret = 0;
+
+	srand(time(NULL));
 
 	for(int i = 1; i < argc; i++)
 		if(!strcmp(argv[i], "-l"))
@@ -186,7 +211,11 @@ int main(int argc, const char **argv)
 
 		if(true || redraw){ // FIXME
 			redraw = false;
-			GFX::draw(true, sticks, nsticks, bullets, nbullets, NULL);
+			GFX::draw(true,
+					sticks, nsticks,
+					bullets, nbullets,
+					platforms, CONF_NPLATFORMS,
+					NULL);
 		}
 
 		Util::mssleep(30);

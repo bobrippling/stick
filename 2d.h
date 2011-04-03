@@ -157,61 +157,124 @@ class Position
 		}
 };
 
-class Mover : public Vector, public Position
+class Box : public Position
 {
 	protected:
-		int _w, _h;
+		float _w, _h;
 
 	public:
-		inline Mover(int w, int h)
-			: _w(w), _h(h)
-		{
-		}
-
-		inline Mover(float x, float y, float speed, float heading,
-				int w, int h)
-			: Vector(VEC_SPEED_HEADING, speed, heading), Position(x, y),
-			_w(w), _h(h)
+		inline Box(float x, float y, float w, float h)
+			: Position(x, y), _w(w), _h(h)
 		{
 		}
 
 		ACCESS(float, _w)
 		ACCESS(float, _h)
 
+		float get_x2() const { return _x + _w; }
+		float get_y2() const { return _y + _h; }
+};
+
+class Mover : public Vector, public Box
+{
+	public:
+		inline Mover(float x, float y, float speed, float heading, float w, float h)
+			: Vector(VEC_SPEED_HEADING, speed, heading), Box(x, y, w, h)
+		{
+		}
+
+		inline void apply_vector()
+		{
+			Position::apply_vector(*this);
+		}
+
 		enum clip_method
 		{
 			CLIP_BOUNCE, CLIP_STOP, CLIP_NONE
 		};
-
-		inline bool clip_generic(float &var, float min, float max, enum clip_method m, const Vector &v_b, const Vector &v_s)
+		enum clip_type
 		{
-			bool low;
+			CLIP_SIDE_LOW, CLIP_SIDE_HIGH, CLIP_SIDE_NONE
+		};
 
-			if((low = var < min) || var > max){
-				switch(m){
-					case CLIP_NONE:
+		inline enum clip_type intersects(float var, float min, float max)
+		{
+			if(     var <  min) return CLIP_SIDE_LOW;
+			else if(var >= max) return CLIP_SIDE_HIGH;
+			else                return CLIP_SIDE_NONE;
+		}
+
+		inline bool outside(float x_min, float y_min, float x_max, float y_max)
+		{
+			if((x_max -= _w) < x_min)
+				x_max = x_min;
+
+			if((y_max -= _h) < y_min)
+				y_max = y_min;
+
+			return intersects(_x, x_min, x_max) != CLIP_SIDE_NONE ||
+						 intersects(_y, y_min, y_max) != CLIP_SIDE_NONE;
+		}
+
+		inline bool touches(float x_min, float y_min, float x_max, float y_max)
+		{
+			return x_min <= _x + _w &&
+						 _x    <= x_max   &&
+						 y_min <= _y + _h &&
+						 _y    <= y_max;
+		}
+
+		inline bool intersects(Box &b)
+		{
+			return !outside(b.get_x(), b.get_y(), b.get_x2(), b.get_y2());
+		}
+
+		inline bool touches(Box &b)
+		{
+			return touches(b.get_x(), b.get_y(), b.get_x2(), b.get_y2());
+		}
+
+		inline bool clip_and_adj(float &var, float min, float max,
+				enum clip_method m, const Vector &v_b, const Vector &v_s)
+		{
+			switch(intersects(var, min, max)){
+				case CLIP_SIDE_NONE:
+					return false;
+
+				case CLIP_SIDE_LOW:
+					if(m == CLIP_NONE)
 						return true;
 
-					case CLIP_BOUNCE:
-						mul_vector(v_b);
-						break;
-
-					case CLIP_STOP:
-						mul_vector(v_s);
-						break;
-				}
-
-				if(low)
 					while(var < min)
 						var += 0.1;
-				else
+					break;
+
+				case CLIP_SIDE_HIGH:
+					if(m == CLIP_NONE)
+						return true;
+
 					while(var > max)
 						var -= 0.1;
-
-				return true;
+					break;
 			}
-			return false;
+
+			switch(m){
+				case CLIP_NONE:
+					// unreachable
+					break;
+
+				case CLIP_BOUNCE:
+					mul_vector(v_b);
+					break;
+
+				case CLIP_STOP:
+					mul_vector(v_s);
+					break;
+			}
+
+			return true;
 		}
+
 
 		inline bool clip(float x_min, float y_min, float x_max, float y_max, enum clip_method m)
 		{
@@ -224,8 +287,8 @@ class Mover : public Vector, public Position
 			x_max -= _w;
 			y_max -= _h;
 
-			return clip_generic(_x, x_min, x_max, m, v_x_b, v_x_s) |
-				clip_generic(_y, y_min, y_max, m, v_y_b, v_y_s);
+			return clip_and_adj(_x, x_min, x_max, m, v_x_b, v_x_s) |
+						 clip_and_adj(_y, y_min, y_max, m, v_y_b, v_y_s);
 		}
 };
 

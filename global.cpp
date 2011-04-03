@@ -9,8 +9,10 @@
 #include "gfx.h"
 #include "2d.h"
 #include "obj.h"
+#include "plat.h"
 #include "stick.h"
 #include "bullet.h"
+#include "plat.h"
 #include "util.h"
 #include "files.h"
 
@@ -18,10 +20,11 @@
 
 namespace Global
 {
-	UDPSocket  *sock;
-
 	Stick  **sticks, *stick_me;
 	Bullet **bullets;
+	Platform  **platforms;
+
+	UDPSocket  *sock;
 
 	int   nsticks = 0, nbullets = 0;
 	bool  redraw = true;

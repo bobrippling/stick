@@ -3,9 +3,12 @@
 
 namespace Global
 {
-	extern UDPSocket  *sock;
 	extern Stick     **sticks, *stick_me;
 	extern Bullet    **bullets;
+	extern Platform  **platforms;
+
+	extern UDPSocket  *sock;
+
 	extern int         nsticks;
 	extern int         nbullets;
 	extern bool        redraw;
