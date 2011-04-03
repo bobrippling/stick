@@ -55,19 +55,29 @@ class Vector
 		float _speed, _heading;
 
 	public:
+		enum vector_init
+		{
+			VEC_SPEED_HEADING,
+			VEC_XCOMP_YCOMP
+		};
+
 		inline Vector() : _speed(0), _heading(0)
 		{
 		}
 
-		inline Vector(float speed, float heading)
-			: _speed(speed), _heading(heading)
-		{
-		}
-
-		inline Vector(float xc, float yc, int)
+		inline Vector(enum vector_init t, float a, float b)
 			: _speed(), _heading()
 		{
-			xc_yc_to_speed_heading(xc, yc, _speed, _heading);
+			switch(t){
+				case VEC_SPEED_HEADING:
+					_speed   = a;
+					_heading = b;
+					break;
+
+				case VEC_XCOMP_YCOMP:
+					xc_yc_to_speed_heading(a, b, _speed, _heading);
+					break;
+			}
 		}
 
 		inline Vector(const Vector &v) : _speed(v._speed), _heading(v._heading)
@@ -160,7 +170,7 @@ class Mover : public Vector, public Position
 
 		inline Mover(float x, float y, float speed, float heading,
 				int w, int h)
-			: Vector(speed, heading), Position(x, y),
+			: Vector(VEC_SPEED_HEADING, speed, heading), Position(x, y),
 			_w(w), _h(h)
 		{
 		}
@@ -206,10 +216,10 @@ class Mover : public Vector, public Position
 		inline bool clip(float x_min, float y_min, float x_max, float y_max, enum clip_method m)
 		{
 			static const Vector
-				v_x_b(-1,  1, 0),
-				v_x_s( 0,  1, 0),
-				v_y_b( 1, -1, 0),
-				v_y_s( 1,  0, 0);
+				v_x_b(VEC_XCOMP_YCOMP, -1,  1),
+				v_x_s(VEC_XCOMP_YCOMP,  0,  1),
+				v_y_b(VEC_XCOMP_YCOMP,  1, -1),
+				v_y_s(VEC_XCOMP_YCOMP,  1,  0);
 
 			x_max -= _w;
 			y_max -= _h;

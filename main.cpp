@@ -24,7 +24,7 @@ void handle_keys()
 {
 #define KEY_VEC(k, a, b) \
 	if(k){ \
-		Vector v(a * CONF_SCALE_SPEED, b * CONF_SCALE_SPEED, 0); \
+		Vector v(Vector::VEC_XCOMP_YCOMP, a * CONF_SCALE_SPEED, b * CONF_SCALE_SPEED); \
 		stick_me->add_vector(v); \
 		redraw = true; \
 	}
