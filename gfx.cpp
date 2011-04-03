@@ -56,6 +56,15 @@ namespace GFX
 					return false;
 
 				case SDL_MOUSEMOTION:
+					keys.x = event.motion.x;
+					keys.y = event.motion.y;
+
+					stick_me->set_facing(
+							findangle(
+								stick_me->get_x(),
+								stick_me->get_y(),
+								keys.x,
+								keys.y));
 					break;
 
 				case SDL_MOUSEBUTTONUP:
@@ -95,28 +104,26 @@ namespace GFX
 
 	void draw(bool first, ...)
 	{
+		Drawable **draws;
 		va_list l;
+		int n;
 
 		SDL_BlitSurface(Files::img_bg(), NULL, screen, NULL);
 
-		if(first){
-			Drawable **draws;
-			int n;
+		va_start(l, first);
 
-			va_start(l, first);
+		for(;;){
+			draws = va_arg(l, Drawable **);
+			if(!draws)
+				break;
 
-			for(;;){
-				draws = va_arg(l, Drawable **);
-				if(!draws)
-					break;
-
-				n = va_arg(l, int);
-				for(int i = 0; i < n; i++)
+			n = va_arg(l, int);
+			for(int i = 0; i < n; i++)
+				if(draws[i])
 					draws[i]->draw(screen);
-			}
-
-			va_end(l);
 		}
+
+		va_end(l);
 
 		SDL_Flip(screen);
 	}

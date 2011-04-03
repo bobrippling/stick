@@ -20,19 +20,27 @@ static inline float clipangle(register float a)
 	return a;
 }
 
+static inline float findangle(float xc, float yc)
+{
+	if(xc > 0)
+		return atanf(yc / xc);
+	else if(xc < 0)
+		return M_PI + atanf(yc / xc);
+	else if(yc > 0)
+		return  M_PI / 2;
+	else
+		return -M_PI / 2;
+}
+
+static inline float findangle(float x1, float y1, float x2, float y2)
+{
+	return findangle(x2 - x1, y2 - y1);
+}
 
 static inline void xc_yc_to_speed_heading(float xc, float yc, float &speed, float &heading)
 {
 	speed = sqrtf(xc * xc + yc * yc);
-
-	if(xc > 0)
-		heading = atan(yc / xc);
-	else if(xc < 0)
-		heading = M_PI + atan(yc / xc);
-	else if(yc > 0)
-		heading =  M_PI / 2;
-	else
-		heading = -M_PI / 2;
+	heading = findangle(xc, yc);
 }
 
 static inline void speed_heading_to_xc_yc(float speed, float heading, float &xc, float &yc)
@@ -40,7 +48,6 @@ static inline void speed_heading_to_xc_yc(float speed, float heading, float &xc,
 	xc = speed * cosf(heading);
 	yc = speed * sinf(heading);
 }
-
 
 class Vector
 {
@@ -52,7 +59,13 @@ class Vector
 		{
 		}
 
-		inline Vector(float xc, float yc) : _speed(), _heading()
+		inline Vector(float speed, float heading)
+			: _speed(speed), _heading(heading)
+		{
+		}
+
+		inline Vector(float xc, float yc, int)
+			: _speed(), _heading()
 		{
 			xc_yc_to_speed_heading(xc, yc, _speed, _heading);
 		}
@@ -86,8 +99,8 @@ class Vector
 		VEC_CODE(add_vector, +)
 		VEC_CODE(mul_vector, *)
 
-		ACCESS(_speed)
-		ACCESS(_heading)
+		ACCESS(float, _speed)
+		ACCESS(float, _heading)
 };
 
 
@@ -122,8 +135,8 @@ class Position
 		{
 		}
 
-		ACCESS(_x)
-		ACCESS(_y)
+		ACCESS(float, _x)
+		ACCESS(float, _y)
 
 		inline void apply_vector(const Vector &v)
 		{
@@ -151,6 +164,9 @@ class Mover : public Vector, public Position
 			_w(w), _h(h)
 		{
 		}
+
+		ACCESS(float, _w)
+		ACCESS(float, _h)
 
 		enum clip_method
 		{
@@ -190,10 +206,10 @@ class Mover : public Vector, public Position
 		inline bool clip(float x_min, float y_min, float x_max, float y_max, enum clip_method m)
 		{
 			static const Vector
-				v_x_b(-1,  1),
-				v_x_s( 0,  1),
-				v_y_b( 1, -1),
-				v_y_s( 1,  0);
+				v_x_b(-1,  1, 0),
+				v_x_s( 0,  1, 0),
+				v_y_b( 1, -1, 0),
+				v_y_s( 1,  0, 0);
 
 			x_max -= _w;
 			y_max -= _h;

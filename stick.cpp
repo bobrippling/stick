@@ -15,7 +15,7 @@
 Stick::Stick(const struct sockaddr_in *addr, const char *name)
 	: Addressable(addr), Obj(Files::img_stick()),
 	_name(new char[1 + strlen(name)]),
-	_facing(0), _last_bullet(Util::mstime())
+	_facing(0), _last_bullet(Util::mstime() - CONF_BULLET_DELAY)
 {
 	strcpy(_name, name);
 }

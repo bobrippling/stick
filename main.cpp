@@ -24,7 +24,7 @@ void handle_keys()
 {
 #define KEY_VEC(k, a, b) \
 	if(k){ \
-		Vector v(a * CONF_SCALE_SPEED, b * CONF_SCALE_SPEED); \
+		Vector v(a * CONF_SCALE_SPEED, b * CONF_SCALE_SPEED, 0); \
 		stick_me->add_vector(v); \
 		redraw = true; \
 	}
@@ -44,15 +44,21 @@ void handle_keys()
 	if(keys.button_left){
 		long now = Util::mstime();
 
-		if(stick_me->get_last_bullet() + CONF_BULLET_DELAY < now){
+		if(stick_me->get_last_bullet() + CONF_BULLET_DELAY <= now){
 			stick_me->set_last_bullet(now);
 
-			printf("add bullet @ %.2f %.2f\n", stick_me->get_x(), stick_me->get_y());
-
 			// FIXME: apply vector shiz
-			bullets[nbullets++] = new Bullet(stick_me->get_x(), stick_me->get_y(), CONF_BULLET_SPEED, stick_me->get_facing());
-		}else
-			printf("diff: %d\n", now - (stick_me->get_last_bullet() + CONF_BULLET_DELAY));
+			// FIXME: bound check
+			for(int i = 0; i < nbullets; i++)
+				if(!bullets[i]){
+					bullets[i] = new Bullet(
+							stick_me->get_x() + stick_me->get_w()/2,
+							stick_me->get_y() + stick_me->get_h()/2,
+							CONF_BULLET_SPEED, stick_me->get_facing());
+					break;
+				}
+			nbullets++;
+		}
 	}
 }
 
@@ -66,10 +72,10 @@ void physics()
 	for(int i = 0; i < nbullets; i++){
 		if(bullets[i]){
 			bullets[i]->apply_vector(*bullets[i]);
-
 			if(bullets[i]->clip(0, 0, GFX::SCREEN_WIDTH, GFX::SCREEN_HEIGHT, Mover::CLIP_NONE)){
 				delete bullets[i];
 				bullets[i] = NULL;
+				nbullets--;
 			}
 		}
 	}
@@ -115,6 +121,8 @@ void var_init()
 	memset(bullets, 0, CONF_MAX_BULLETS * sizeof(bullets[0]));
 }
 
+			namespace GFX{
+			extern SDL_Surface *screen;}
 int main(int argc, const char **argv)
 {
 #define USAGE() usage(*argv)
@@ -176,9 +184,9 @@ int main(int argc, const char **argv)
 
 		physics();
 
-		if(true || redraw){
+		if(true || redraw){ // FIXME
 			redraw = false;
-			GFX::draw(true, sticks, nsticks, NULL);
+			GFX::draw(true, sticks, nsticks, bullets, nbullets, NULL);
 		}
 
 		Util::mssleep(30);

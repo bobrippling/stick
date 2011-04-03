@@ -1,0 +1,17 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define CONF_PORT "2848"
+#define CONF_MAX_STICKS  128
+#define CONF_MAX_BULLETS 1024
+
+#define CONF_SCALE_SPEED 0.5
+
+#define CONF_WIDTH  800
+#define CONF_HEIGHT 600
+
+#define CONF_BULLET_LEN   20
+#define CONF_BULLET_DELAY 200
+#define CONF_BULLET_SPEED 20.0f
+
+#endif

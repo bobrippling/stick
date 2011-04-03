@@ -15,8 +15,8 @@ class Stick : public Addressable, public Obj
 		Stick(const struct sockaddr_in *addr, const char *name);
 		virtual ~Stick();
 
-		ACCESS(_facing)
-		ACCESS(_last_bullet)
+		ACCESS(float, _facing)
+		ACCESS(long,  _last_bullet)
 };
 
 #endif
