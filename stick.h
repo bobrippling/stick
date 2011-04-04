@@ -14,7 +14,13 @@ class Stick : public Addressable, public Obj
 		int _cur_platform;
 
 	public:
-		Stick(const struct sockaddr_in *addr, const char *name, float x, float y, float speed, float heading);
+		enum touch_type
+		{
+			TOUCH_FEET, TOUCH_ALL
+		};
+
+		Stick(const struct sockaddr_in *addr, const char *name,
+				float x, float y, float speed, float heading);
 		virtual ~Stick();
 
 		ACCESS(float, _facing)
@@ -22,8 +28,9 @@ class Stick : public Addressable, public Obj
 		ACCESS(int,   _cur_platform)
 
 		bool on_platform() const;
-
 		void move_to_platform(Platform &p);
+
+		bool touches(enum touch_type t, Box &b);
 };
 
 #endif

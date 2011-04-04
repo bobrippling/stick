@@ -39,3 +39,16 @@ void Stick::move_to_platform(Platform &p)
 	_y = p.get_y();
 	_speed = 0.0f;
 }
+
+bool Stick::touches(enum touch_type t, Box &b)
+{
+	switch(t){
+		case TOUCH_ALL:
+			return Mover::touches(b);
+
+		case TOUCH_FEET:
+			return Mover::touches(b, _x, _y + _h - CONF_FEET_H, _w, (float)CONF_FEET_H);
+			// FIXME: test
+	}
+	return false;
+}

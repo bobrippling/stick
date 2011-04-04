@@ -58,9 +58,9 @@ void handle_keys()
 							stick_me->get_x() + stick_me->get_w()/2,
 							stick_me->get_y() + stick_me->get_h()/2,
 							CONF_BULLET_SPEED, stick_me->get_facing());
+					nbullets++;
 					break;
 				}
-			nbullets++;
 		}
 	}
 }
@@ -75,8 +75,9 @@ void physics()
 
 		if(!sticks[i]->on_platform()){
 			sticks[i]->add_vector(vec_gravity);
+
 			for(int j = 0; j < CONF_NPLATFORMS; j++)
-				if(sticks[i]->touches(*platforms[j])){
+				if(sticks[i]->touches(Stick::TOUCH_FEET, *platforms[j])){
 					printf("stick %d -> platform %d\n", i, j);
 					sticks[i]->set_cur_platform(j);
 					sticks[i]->move_to_platform(*platforms[j]);

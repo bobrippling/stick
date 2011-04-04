@@ -49,6 +49,15 @@ static inline void speed_heading_to_xc_yc(float speed, float heading, float &xc,
 	yc = speed * sinf(heading);
 }
 
+static inline bool touches(float x_min, float y_min, float x_max, float y_max,
+		float _x, float _y, float _w, float _h)
+{
+	return x_min <= _x + _w &&
+					_x    <= x_max   &&
+					y_min <= _y + _h &&
+					_y    <= y_max;
+}
+
 class Vector
 {
 	protected:
@@ -175,6 +184,15 @@ class Box : public Position
 		float get_y2() const { return _y + _h; }
 };
 
+
+static inline bool touches(Box &b,
+		float _x, float _y, float _w, float _h)
+{
+	return touches(b.get_x(), b.get_y(), b.get_x2(), b.get_y2(),
+			_x, _y, _w, _h);
+}
+
+
 class Mover : public Vector, public Box
 {
 	public:
@@ -218,10 +236,7 @@ class Mover : public Vector, public Box
 
 		inline bool touches(float x_min, float y_min, float x_max, float y_max)
 		{
-			return x_min <= _x + _w &&
-						 _x    <= x_max   &&
-						 y_min <= _y + _h &&
-						 _y    <= y_max;
+			return ::touches(x_min, y_min, x_max, y_max, _x, _w, _y, _h);
 		}
 
 		inline bool intersects(Box &b)
@@ -232,6 +247,12 @@ class Mover : public Vector, public Box
 		inline bool touches(Box &b)
 		{
 			return touches(b.get_x(), b.get_y(), b.get_x2(), b.get_y2());
+		}
+
+		inline bool touches(Box &b, float x, float y, float w, float h)
+		{
+			return ::touches(b.get_x(), b.get_y(), b.get_x2(), b.get_y2(),
+					x, y, w, h);
 		}
 
 		inline bool clip_and_adj(float &var, float min, float max,
