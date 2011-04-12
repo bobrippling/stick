@@ -19,7 +19,9 @@
 #define CONF_BULLET_DELAY 200
 #define CONF_BULLET_SPEED 20.0f
 
-#define CONF_FEET_H       10
+#define CONF_FEET_H           10
+#define CONF_STICK_JUMP_DELAY 50
+#define CONF_JUMP_VECTOR (Vector::VEC_XCOMP_YCOMP, 0.0f, -20.0f)
 
 #define CONF_GRAVITY (Vector::VEC_XCOMP_YCOMP, 0.0f, 2.0f)
 

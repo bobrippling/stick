@@ -38,6 +38,9 @@ void handle_keys()
 	KEY_VEC(keys.right, +1.0f,  0.0f)
 #undef KEY_VEC
 
+	if(keys.jump)
+		stick_me->jump();
+
 #if 0
 	printf("up:%d down:%d left:%d right:%d bleft:%d bright:%d\r",
 		keys.up, keys.down, keys.left, keys.right,
@@ -137,8 +140,8 @@ void var_init()
 	bullets = new Bullet *[CONF_MAX_BULLETS];
 	memset(bullets, 0, CONF_MAX_BULLETS * sizeof(bullets[0]));
 
+	// FIXME: platform[0] is the base platform
 	platforms = new Platform *[CONF_NPLATFORMS];
-
 	for(int i = 0; i < CONF_NPLATFORMS; i++)
 		platforms[i] = new Platform(
 			rand() % CONF_WIDTH,

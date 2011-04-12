@@ -19,7 +19,7 @@ Stick::Stick(const struct sockaddr_in *addr, const char *name, float x, float y,
 	_name(new char[1 + strlen(name)]),
 	_facing(0),
 	_last_bullet(Util::mstime() - CONF_BULLET_DELAY),
-	_cur_platform(-1)
+	_cur_platform(-1), _last_jump(Util::mstime() - CONF_STICK_JUMP_DELAY)
 {
 	strcpy(_name, name);
 }
@@ -38,6 +38,18 @@ void Stick::move_to_platform(Platform &p)
 {
 	_y = p.get_y();
 	_speed = 0.0f;
+}
+
+void Stick::jump()
+{
+	static const Vector jmpvec CONF_JUMP_VECTOR;
+	const long now = Util::mstime();
+
+	if(on_platform() && _last_jump + CONF_STICK_JUMP_DELAY < now){
+		_cur_platform = -1;
+		_last_jump = now;
+		Position::apply_vector(jmpvec);
+	}
 }
 
 bool Stick::touches(enum touch_type t, Box &b)

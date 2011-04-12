@@ -15,8 +15,9 @@ namespace Global
 
 	struct keys
 	{
-		bool left, right, up, down,
-				 button_left, button_right;
+		bool left, right, up, down;
+		bool button_left, button_right;
+		bool jump;
 		int x, y;
 	};
 	extern struct keys keys;

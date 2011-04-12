@@ -87,10 +87,11 @@ namespace GFX
 				case SDL_KEYUP:
 					switch(event.key.keysym.sym){
 #define KEY(k, v) case k: v = event.type == SDL_KEYDOWN; break
-						KEY(SDLK_a, keys.left);
-						KEY(SDLK_d, keys.right);
-						KEY(SDLK_w, keys.up);
-						KEY(SDLK_s, keys.down);
+						KEY(SDLK_a,     keys.left);
+						KEY(SDLK_d,     keys.right);
+						KEY(SDLK_w,     keys.up);
+						KEY(SDLK_s,     keys.down);
+						KEY(SDLK_SPACE, keys.jump);
 
 						default:
 							break;

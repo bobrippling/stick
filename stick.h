@@ -12,6 +12,7 @@ class Stick : public Addressable, public Obj
 		long _last_bullet;
 
 		int _cur_platform;
+		long _last_jump;
 
 	public:
 		enum touch_type
@@ -29,6 +30,7 @@ class Stick : public Addressable, public Obj
 
 		bool on_platform() const;
 		void move_to_platform(Platform &p);
+		void jump();
 
 		bool touches(enum touch_type t, Box &b);
 };
