@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-class Stick : public Addressable, public Obj
+class Stick : public Addressable, public Obj, public Serialisable
 {
 	private:
 		char *_name;
@@ -33,6 +33,8 @@ class Stick : public Addressable, public Obj
 		void jump();
 
 		bool touches(enum touch_type t, Box &b);
+
+		virtual const char *serial(int) const;
 };
 
 #endif

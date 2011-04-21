@@ -9,6 +9,7 @@
 #include "2d.h"
 #include "obj.h"
 #include "plat.h"
+#include "serial.h"
 #include "stick.h"
 #include "files.h"
 #include "util.h"
@@ -63,4 +64,19 @@ bool Stick::touches(enum touch_type t, Box &b)
 			// FIXME: test
 	}
 	return false;
+}
+
+const char *Stick::serial(int id) const
+{
+	static char buffer[32];
+
+	memcpy(buffer    , &id, sizeof id);
+
+	memcpy(buffer + 4, &_x, sizeof _x);
+	memcpy(buffer + 8, &_y, sizeof _y);
+
+	memcpy(buffer + 12, &_speed,   sizeof _speed);
+	memcpy(buffer + 16, &_heading, sizeof _heading);
+
+	return buffer;
 }

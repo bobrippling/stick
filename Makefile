@@ -2,6 +2,8 @@ CFLAGS   = -Wall -Wextra -pedantic -O2 -g -D_POSIX_SOURCE
 CXXFLAGS = ${CFLAGS}
 LDFLAGS  = -lSDL -lSDL_image -lSDL_ttf -lSDL_gfx
 
+all: check Stick
+
 Stick: \
 		stick.o \
 		obj.o \
@@ -24,7 +26,11 @@ Stick: \
 	${CC} ${CFLAGS} -c -o $@ $<
 
 clean:
-	rm -f `find -iname \*.o` Stick
+	rm -f `find -iname \*.o` Stick check
+
+check: check.cpp
+	${CC} ${CFLAGS} -o $@ $<
+	./$@
 
 .PHONY: clean
 
